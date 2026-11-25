@@ -10679,7 +10679,6 @@ impl App {
         self.recording = None;
         self.player.stop();
         self.video.stop();
-        self.pdf_preview = None;
         self.voice_chat = None;
         self.voice_wanted = None;
         self.video_wanted = None;

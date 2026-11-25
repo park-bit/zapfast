@@ -25,7 +25,6 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     preview.poll(ctx, (stage.size() - vec2(32.0, 32.0)).max(Vec2::splat(1.0)));
 
     let mut actions = Vec::new();
-    let mut backdrop_clicked = false;
     let id = modal_id();
     let area = egui::Area::new(id)
         .order(egui::Order::Foreground)
@@ -37,7 +36,6 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         .show(ctx, |ui| {
             ui.set_min_size(screen.size());
             ui.painter().rect_filled(screen, 0.0, palette.overlay);
-            let (_, backdrop) = ui.allocate_exact_size(screen.size(), Sense::CLICK);
 
             let mut head = ui.new_child(UiBuilder::new().max_rect(header_rect));
             head.set_clip_rect(header_rect);
@@ -46,9 +44,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             let mut body = ui.new_child(UiBuilder::new().max_rect(stage));
             body.set_clip_rect(stage);
             page(&mut body, preview, stage, &palette, locale, &mut actions);
-            backdrop_clicked = backdrop.clicked();
         });
-    if response.should_close() || backdrop_clicked {
+    if response.should_close() {
         actions.push(Action::ClosePdfPreview);
     }
     app.actions.extend(actions);
@@ -202,20 +199,27 @@ fn page(
     let message = match preview.status() {
         Status::Loading => Some(crate::i18n::gettext(locale, "Opening PDF…").into_owned()),
         Status::Failed(message) => Some(crate::i18n::gettext(locale, message).into_owned()),
-        Status::Ready if preview.texture().is_none() => {
-            Some(crate::i18n::gettext(locale, "Rendering page…").into_owned())
-        }
-        Status::Ready => None,
+        Status::Ready => preview
+            .page_error()
+            .map(|message| crate::i18n::gettext(locale, message).into_owned())
+            .or_else(|| {
+                preview
+                    .texture()
+                    .is_none()
+                    .then(|| crate::i18n::gettext(locale, "Rendering page…").into_owned())
+            }),
     };
     if let Some(message) = message {
         ui.scope_builder(UiBuilder::new().max_rect(view), |ui| {
             ui.vertical_centered_justified(|ui| {
                 ui.add_space((view.height() * 0.35).max(16.0));
-                if preview.status() == Status::Loading || preview.status() == Status::Ready {
+                if preview.status() == Status::Loading
+                    || (preview.status() == Status::Ready && preview.page_error().is_none())
+                {
                     ui.spinner();
                 }
                 theme::text(ui, message, theme::regular(14.0), palette.secondary);
-                if matches!(preview.status(), Status::Failed(_))
+                if (matches!(preview.status(), Status::Failed(_)) || preview.page_error().is_some())
                     && theme::soft_button(
                         ui,
                         palette,
@@ -242,7 +246,7 @@ fn page(
     let content_size = Vec2::new(view.width().max(size.x), view.height().max(size.y));
     ui.scope_builder(UiBuilder::new().max_rect(view), |ui| {
         egui::ScrollArea::both()
-            .id_salt("pdf-preview-page")
+            .id_salt(("pdf-preview-page", preview.path(), preview.page()))
             .auto_shrink(false)
             .show(ui, |ui| {
                 let (content, _) = ui.allocate_exact_size(content_size, Sense::hover());

@@ -27,6 +27,7 @@ pub struct PreviewState {
     target_scale: Option<f32>,
     requested: Option<(u64, usize, f32)>,
     rendered: Option<(usize, f32, TextureHandle)>,
+    page_error: Option<&'static str>,
     next_request: u64,
 }
 
@@ -45,6 +46,7 @@ impl PreviewState {
             target_scale: None,
             requested: None,
             rendered: None,
+            page_error: None,
             next_request: 0,
         }
     }
@@ -97,15 +99,21 @@ impl PreviewState {
                                 egui::TextureOptions::LINEAR,
                             ),
                         ));
+                        self.page_error = None;
                     }
                 }
                 Event::Failed { request, message } => {
+                    if request.is_none() {
+                        self.worker = None;
+                        self.status = Status::Failed(message);
+                        break;
+                    }
                     let current = self
                         .requested
                         .is_some_and(|(id, page, _)| Some(id) == request && page == self.page);
-                    if request.is_none() || current {
+                    if current {
                         self.requested = None;
-                        self.status = Status::Failed(message);
+                        self.page_error = Some(message);
                     } else if self.requested.is_some_and(|(id, _, _)| Some(id) == request) {
                         self.requested = None;
                     }
@@ -159,6 +167,7 @@ impl PreviewState {
         };
         if next < self.pages.len() {
             self.page = next;
+            self.page_error = None;
         }
     }
 
@@ -166,12 +175,14 @@ impl PreviewState {
         if factor.is_finite() && factor > 0.0 {
             self.zoom = (self.zoom * factor).clamp(0.25, 4.0);
             self.fit = false;
+            self.page_error = None;
         }
     }
 
     pub fn fit(&mut self) {
         self.zoom = 1.0;
         self.fit = true;
+        self.page_error = None;
     }
 
     pub fn path(&self) -> &Path {
@@ -209,6 +220,10 @@ impl PreviewState {
 
     pub fn status(&self) -> Status {
         self.status
+    }
+
+    pub fn page_error(&self) -> Option<&'static str> {
+        self.page_error
     }
 
     pub fn texture(&self) -> Option<&TextureHandle> {
@@ -252,7 +267,7 @@ mod tests {
     #[test]
     fn navigation_and_zoom_stay_in_bounds() {
         let path = PathBuf::from("fixture.pdf");
-        let state = PreviewState {
+        let mut state = PreviewState {
             path,
             chat: "chat".into(),
             worker: None,
@@ -265,9 +280,9 @@ mod tests {
             target_scale: None,
             requested: None,
             rendered: None,
+            page_error: None,
             next_request: 0,
         };
-        let mut state = state;
         state.move_page(-1);
         assert_eq!(state.page(), 0);
         state.move_page(1);
