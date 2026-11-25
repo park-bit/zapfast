@@ -368,7 +368,8 @@ mod context_tests {
             crate::theme::Palette::aurora(false),
         ] {
             let ctx = egui::Context::default();
-            let output = ctx.run_ui(egui::RawInput::default(), |ui| ambient(ui, &palette));
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| ambient(ui, &palette));
+            output.textures_delta.clear();
             let meshes: Vec<_> = output
                 .shapes
                 .iter()
