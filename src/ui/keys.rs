@@ -19,6 +19,10 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         editor_keys(app, ctx);
         return;
     }
+    if app.pdf_preview.is_some() {
+        pdf_keys(app, ctx);
+        return;
+    }
     if app.image_preview.is_some() {
         video_keys(app, ctx);
         preview_keys(app, ctx);
@@ -430,6 +434,33 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
     if let Some(id) = edit_previous.then(|| app.previous_own_editable()).flatten() {
         actions.push(Action::Edit(id));
     }
+    app.actions.extend(actions);
+}
+
+/// Keeps chat shortcuts and text input behind the PDF modal; arrows turn pages.
+fn pdf_keys(app: &mut App, ctx: &egui::Context) {
+    let actions = ctx.input_mut(|input| {
+        let mut actions = Vec::new();
+        if input.consume_key(Modifiers::NONE, Key::Escape) {
+            actions.push(Action::ClosePdfPreview);
+        }
+        for event in &input.events {
+            if let egui::Event::Key {
+                key,
+                modifiers,
+                pressed: true,
+                ..
+            } = event
+                && let Some(action) = crate::pdf_preview::key_action(*key, *modifiers)
+            {
+                actions.push(action);
+            }
+        }
+        input
+            .events
+            .retain(|event| !crate::image_preview::consumes_key(event));
+        actions
+    });
     app.actions.extend(actions);
 }
 

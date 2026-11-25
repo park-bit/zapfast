@@ -2954,6 +2954,16 @@ pub enum Action {
     ZoomImageOut,
     FitImage,
     CloseImagePreview,
+    /// Opens a downloaded PDF in the native document viewer.
+    PreviewPdf(PathBuf),
+    /// Moves the PDF viewer one page backward or forward.
+    PdfPage(i8),
+    /// Multiplies the PDF viewer's zoom by this factor.
+    ZoomPdfBy(f32),
+    /// Fits the current PDF page to the viewer.
+    FitPdf,
+    /// Closes the PDF viewer.
+    ClosePdfPreview,
     /// Shows a downloaded sticker large, with a favorite toggle.
     PreviewSticker(PathBuf),
     CloseStickerPreview,

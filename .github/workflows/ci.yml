@@ -139,6 +139,9 @@ jobs:
               --demo-shot "$RUNNER_TEMP/zapfast-$appearance.png" --demo-shot-delay 2000
             test -s "$RUNNER_TEMP/zapfast-$appearance.png"
           done
+          target/debug/zapfast --demo --demo-page pdf-preview \
+            --demo-shot "$RUNNER_TEMP/zapfast-pdf-preview.png" --demo-shot-delay 2500
+          test -s "$RUNNER_TEMP/zapfast-pdf-preview.png"
       - name: macOS preview
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v7

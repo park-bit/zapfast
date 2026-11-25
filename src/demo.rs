@@ -426,6 +426,13 @@ fn sample_files(app: &App) -> (std::path::PathBuf, std::path::PathBuf) {
     (photo, sticker)
 }
 
+fn sample_pdf_path(app: &App) -> std::path::PathBuf {
+    let path = app.dirs.media_cache_dir().join("demo-document.pdf");
+    let _ = std::fs::create_dir_all(path.parent().unwrap_or(&path));
+    let _ = std::fs::write(&path, crate::pdf::demo_pdf());
+    path
+}
+
 /// Loads the sample account and opens its first chat.
 pub fn populate(app: &mut App) {
     app.backend.set_offline(true);
@@ -2125,6 +2132,14 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                     message: "demo-video".into(),
                     path: app.dirs.media_cache_dir().join("demo-video.mp4"),
                 });
+            }
+            "pdf-preview" => {
+                app.pdf_preview = Some(crate::pdf_preview::PreviewState::new(
+                    sample_pdf_path(app),
+                    app.open_chat
+                        .clone()
+                        .unwrap_or_else(|| SAMPLES[0].id.into()),
+                ));
             }
             "media-album" => media_album_sample(app, true),
             "media-album-replies" => {
@@ -9848,6 +9863,7 @@ mod tests {
             "voice,voice-menu",
             "recording",
             "preview",
+            "pdf-preview",
             "gifs",
             "gifs-badkey",
             "react-menu",
@@ -10029,6 +10045,7 @@ mod tests {
             ("info", wide),
             ("chat-search", wide),
             ("empty", wide),
+            ("pdf-preview", wide),
             ("chat", narrow),
             ("aurora-dark", wide),
             ("aurora-light", wide),

@@ -367,6 +367,12 @@ it again. A live-location share shows the position this linked device received;
 WhatsApp sends later positions only to the phone. ZapFast marks when newer
 positions are available there, but cannot follow the moving location here.
 
+Click a downloaded PDF to read it in ZapFast. Use the page arrows or Left and
+Right, zoom with the buttons or `+` and `-`, and press `0` to fit the page.
+**Open in another app** sends it to your system's PDF viewer. Previewing is
+limited to PDFs up to 64 MiB and 2,000 pages; password-protected or unsupported
+files can be opened in another app instead. PDF contents stay on this computer.
+
 ## Locations
 
 **Send location** in the plus menu beside the message field opens a dialog that
