@@ -230,7 +230,7 @@ pub fn render_scale(width: f32, height: f32, requested: f32) -> Option<f32> {
 }
 
 fn render_page<'a>(
-    page: &'a hayro::hayro_syntax::Page<'a>,
+    page: &'a hayro::hayro_syntax::page::Page<'a>,
     cache: &RenderCache<'a>,
     interpreter: &InterpreterSettings,
     settings: &RenderSettings,
