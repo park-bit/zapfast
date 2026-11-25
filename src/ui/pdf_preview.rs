@@ -36,6 +36,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         .show(ctx, |ui| {
             ui.set_min_size(screen.size());
             ui.painter().rect_filled(screen, 0.0, palette.overlay);
+            ui.painter().rect_filled(stage, 0.0, palette.surface);
 
             let mut head = ui.new_child(UiBuilder::new().max_rect(header_rect));
             head.set_clip_rect(header_rect);
@@ -252,6 +253,12 @@ fn page(
                 let (content, _) = ui.allocate_exact_size(content_size, Sense::hover());
                 let image = Rect::from_center_size(content.center(), size);
                 ui.painter().rect_filled(image, 0.0, egui::Color32::WHITE);
+                ui.painter().rect_stroke(
+                    image,
+                    0.0,
+                    egui::Stroke::new(1.0, palette.outline),
+                    egui::StrokeKind::Inside,
+                );
                 ui.put(
                     image,
                     egui::Image::from_texture(texture).fit_to_exact_size(size),

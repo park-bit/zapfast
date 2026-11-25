@@ -265,8 +265,8 @@ fn render_page<'a>(
 
 #[cfg(any(test, feature = "demo"))]
 pub fn demo_pdf() -> Vec<u8> {
-    let first = b"1 0 0 rg 20 30 120 90 re f\n";
-    let second = b"0.25 0.35 0.8 rg 40 60 100 140 re f\n";
+    let first = b"0.16 0.25 0.45 rg 20 270 160 12 re f\n0.72 0.75 0.80 rg 20 250 120 4 re f\n0.82 0.84 0.87 rg 20 235 156 3 re f\n0.82 0.84 0.87 rg 20 224 148 3 re f\n0.82 0.84 0.87 rg 20 213 155 3 re f\n0.82 0.84 0.87 rg 20 202 103 3 re f\n0.16 0.56 0.62 rg 20 105 74 68 re f\n0.88 0.25 0.28 rg 106 105 74 68 re f\n0.82 0.84 0.87 rg 20 86 160 3 re f\n0.82 0.84 0.87 rg 20 75 140 3 re f\n";
+    let second = b"0.16 0.25 0.45 rg 20 270 160 12 re f\n0.82 0.84 0.87 rg 20 248 156 4 re f\n0.82 0.84 0.87 rg 20 235 144 3 re f\n0.25 0.35 0.8 rg 20 80 160 112 re f\n0.18 0.58 0.55 rg 34 94 25 48 re f\n0.88 0.48 0.24 rg 72 94 25 78 re f\n0.5 0.38 0.72 rg 110 94 25 60 re f\n0.19 0.62 0.48 rg 148 94 20 92 re f\n";
     let bodies = [
         b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
         b"<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>".to_vec(),
