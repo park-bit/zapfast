@@ -411,7 +411,8 @@ impl Palette {
     pub fn glass_edge(&self) -> Stroke {
         Stroke::new(
             1.0,
-            self.text.gamma_multiply(if self.ambient { 0.12 } else { 0.08 }),
+            self.text
+                .gamma_multiply(if self.ambient { 0.12 } else { 0.08 }),
         )
     }
 
