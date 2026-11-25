@@ -23,6 +23,47 @@ const PASSES: usize = 1;
 /// gathers the colours behind it.
 const SATURATION: f32 = 1.3;
 
+/// Diffuse lavender, teal and rose light behind Aurora's glass panes. One
+/// small mesh, with no textures or repaint timer, also supplies the fallback.
+pub fn ambient(ui: &egui::Ui, palette: &crate::theme::Palette) {
+    if !palette.ambient {
+        return;
+    }
+    let rect = ui.max_rect();
+    let base = if crate::backdrop::active() {
+        palette.window.gamma_multiply(0.55)
+    } else {
+        palette.window
+    };
+    const STEPS: u32 = 16;
+    let mut mesh = egui::Mesh::default();
+    for y in 0..=STEPS {
+        let down = y as f32 / STEPS as f32;
+        for x in 0..=STEPS {
+            let across = x as f32 / STEPS as f32;
+            let glow = |cx: f32, cy: f32, strength: f32| {
+                (-6.0 * ((across - cx).powi(2) + (down - cy).powi(2))).exp() * strength
+            };
+            let color = base
+                .lerp_to_gamma(palette.accent, glow(0.12, 0.05, 0.34))
+                .lerp_to_gamma(egui::Color32::from_rgb(83, 179, 186), glow(0.9, 0.4, 0.24))
+                .lerp_to_gamma(egui::Color32::from_rgb(167, 118, 178), glow(0.4, 1.0, 0.16));
+            mesh.colored_vertex(
+                rect.min + egui::vec2(across * rect.width(), down * rect.height()),
+                color,
+            );
+        }
+    }
+    for y in 0..STEPS {
+        for x in 0..STEPS {
+            let i = y * (STEPS + 1) + x;
+            mesh.add_triangle(i, i + 1, i + STEPS + 2);
+            mesh.add_triangle(i, i + STEPS + 2, i + STEPS + 1);
+        }
+    }
+    ui.painter().add(egui::Shape::mesh(mesh));
+}
+
 /// A paint callback that frosts `rect`, the bottom `fade` points easing from
 /// blurred to sharp.
 pub fn shape(rect: egui::Rect, fade: f32) -> egui::Shape {
@@ -317,6 +358,39 @@ unsafe fn program(gl: &glow::Context, header: &str, fragment: &str) -> Option<gl
 #[cfg(test)]
 mod context_tests {
     use super::*;
+
+    #[test]
+    fn ambient_lighting_is_bounded_and_only_paints_for_aurora() {
+        for palette in [
+            crate::theme::Palette::messages(),
+            crate::theme::Palette::light(),
+            crate::theme::Palette::aurora(true),
+            crate::theme::Palette::aurora(false),
+        ] {
+            let ctx = egui::Context::default();
+            let output = ctx.run_ui(egui::RawInput::default(), |ui| ambient(ui, &palette));
+            let meshes: Vec<_> = output
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::Shape::Mesh(mesh) => Some(mesh),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(meshes.len(), usize::from(palette.ambient));
+            if let Some(mesh) = meshes.first() {
+                assert_eq!(mesh.vertices.len(), 17 * 17);
+                assert_eq!(mesh.indices.len(), 16 * 16 * 6);
+                assert!(mesh.vertices.iter().all(|v| v.pos.is_finite()));
+                assert!(
+                    mesh.indices
+                        .iter()
+                        .all(|i| (*i as usize) < mesh.vertices.len())
+                );
+                assert_ne!(mesh.vertices[0].color, mesh.vertices[17 * 17 - 1].color);
+            }
+        }
+    }
 
     #[test]
     fn objects_stay_with_the_context_they_were_made_for() {

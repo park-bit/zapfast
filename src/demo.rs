@@ -3321,6 +3321,18 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             "messages" => {
                 app.settings.theme = ThemeChoice::Messages;
             }
+            "aurora" => {
+                app.settings.theme = ThemeChoice::Aurora;
+            }
+            // Force either appearance for synthetic previews on every desktop.
+            "aurora-dark" | "aurora-light" => {
+                let filename = format!("{part}.json");
+                app.settings.custom_theme = Some(filename.clone());
+                app.settings.custom_theme_cache = Some(crate::theme::CustomTheme {
+                    filename,
+                    palette: crate::theme::Palette::aurora(part == "aurora-dark"),
+                });
+            }
             // Messages follows the system; this shows its light side anywhere.
             "messages-light" => {
                 app.settings.custom_theme = Some("Messages light.json".into());
@@ -9695,6 +9707,12 @@ mod tests {
             "disappearing-saving-group",
             "disappearing-readonly-group",
             "settings",
+            "aurora-dark",
+            "aurora-light",
+            "settings,aurora-dark",
+            "settings,aurora-light",
+            "wallpaper-image,aurora-dark",
+            "wallpaper-image,aurora-light",
             "settings-search=Notifications",
             "settings-search=System",
             "settings-search=Storage",
@@ -9998,6 +10016,10 @@ mod tests {
             ("chat-search", wide),
             ("empty", wide),
             ("chat", narrow),
+            ("aurora-dark", wide),
+            ("aurora-light", wide),
+            ("aurora-dark", narrow),
+            ("aurora-light", narrow),
             ("info", narrow),
             ("empty", narrow),
             ("chat", egui::vec2(700.0, 600.0)),
@@ -24554,7 +24576,7 @@ mod bubble_detail_tests {
         ctx.data(|data| data.get_temp::<egui::Rect>(id))
     }
 
-    /// The `bubbles` page in both Messages palettes: every message of the
+    /// The `bubbles` page in every built-in glass palette: every message of the
     /// sample is drawn, and only each run's last balloon curls a tail out of
     /// its side, as far as Apple's reaches at ZapFast's text size; a lone
     /// photo leaves the tail to the balloon after it. All of it fits a 1280
@@ -24571,7 +24593,12 @@ mod bubble_detail_tests {
         });
         const SIZE: egui::Vec2 = egui::vec2(1280.0, 800.0);
         let reach = crate::ui::widgets::balloon::TIP[0] * crate::ui::widgets::MESSAGES_SCALE;
-        for page in ["bubbles,messages", "bubbles,messages-light"] {
+        for page in [
+            "bubbles,messages",
+            "bubbles,messages-light",
+            "bubbles,aurora-dark",
+            "bubbles,aurora-light",
+        ] {
             let mut app = app();
             let ctx = egui::Context::default();
             app.attach(&ctx);

@@ -57,6 +57,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         window_chrome(app, ui);
         return;
     }
+    glass::ambient(ui, &app.palette);
     keys::handle(app, ctx);
     history_buttons(app, ctx);
     let main_navigation = app.is_linked()

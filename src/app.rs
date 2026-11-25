@@ -1558,6 +1558,7 @@ impl App {
             .unwrap_or_else(|| match settings.theme {
                 ThemeChoice::Light => Palette::light(),
                 ThemeChoice::Messages => Palette::messages(),
+                ThemeChoice::Aurora => Palette::aurora(true),
                 _ => Palette::dark(),
             });
         let locale = crate::i18n::resolve(settings.interface_language);
@@ -7217,8 +7218,10 @@ impl App {
             || match self.settings.theme {
                 ThemeChoice::Dark => egui::ThemePreference::Dark,
                 ThemeChoice::Light => egui::ThemePreference::Light,
-                // Messages follows the system's appearance, as Messages does.
-                ThemeChoice::System | ThemeChoice::Messages => egui::ThemePreference::System,
+                // Glass themes follow the system's appearance.
+                ThemeChoice::System | ThemeChoice::Messages | ThemeChoice::Aurora => {
+                    egui::ThemePreference::System
+                }
             },
             |palette| {
                 if palette.dark {
@@ -7262,7 +7265,9 @@ impl App {
             }
         };
         let palette = self.settings.cached_palette().unwrap_or_else(|| {
-            if self.settings.theme == ThemeChoice::Messages {
+            if self.settings.theme == ThemeChoice::Aurora {
+                Palette::aurora(dark)
+            } else if self.settings.theme == ThemeChoice::Messages {
                 if dark {
                     Palette::messages()
                 } else {
@@ -18829,6 +18834,32 @@ mod tests {
                 assert_eq!(ctx.theme(), theme);
             }
         }
+    }
+
+    #[test]
+    fn aurora_follows_system_without_changing_the_chat_or_draft() {
+        let mut app = app();
+        let ctx = egui::Context::default();
+        app.open_chat = Some("theme-test@s.whatsapp.net".into());
+        app.composer = "An unfinished draft".into();
+        let chat = app.open_chat.clone();
+        for system in [egui::Theme::Light, egui::Theme::Dark] {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    system_theme: Some(system),
+                    ..Default::default()
+                },
+                |_| app.apply(Action::SetTheme(ThemeChoice::Aurora), &ctx),
+            );
+            output.textures_delta.clear();
+            assert_eq!(app.palette, Palette::aurora(system == egui::Theme::Dark));
+            assert_eq!(ctx.theme(), system);
+            assert_eq!(app.open_chat, chat);
+            assert_eq!(app.composer, "An unfinished draft");
+        }
+        app.apply(Action::SetTheme(ThemeChoice::Dark), &ctx);
+        assert_eq!(app.palette, Palette::dark());
+        assert!(!app.palette.ambient);
     }
 
     #[test]

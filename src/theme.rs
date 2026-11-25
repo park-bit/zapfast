@@ -87,9 +87,12 @@ pub struct Palette {
     pub read: Color32,
     /// How message bubbles are shaped. Neither palette files nor the copy
     /// of a palette cached in settings can set it, so custom themes keep
-    /// WhatsApp's: only the built-in Messages palettes choose another.
+    /// WhatsApp's: only the built-in glass palettes choose another.
     #[serde(skip)]
     pub bubbles: BubbleStyle,
+    /// Ambient lighting belongs only to the built-in Aurora Glass theme.
+    #[serde(skip)]
+    pub ambient: bool,
 }
 
 /// The shape of message bubbles.
@@ -132,6 +135,7 @@ impl Palette {
             link: Color32::from_rgb(0x53, 0xbd, 0xeb),
             read: Color32::from_rgb(0x53, 0xbd, 0xeb),
             bubbles: BubbleStyle::WhatsApp,
+            ambient: false,
         }
     }
 
@@ -166,6 +170,7 @@ impl Palette {
             link: Color32::from_rgb(0x64, 0xd2, 0xff),
             read: Color32::from_rgb(0x64, 0xd2, 0xff),
             bubbles: BubbleStyle::Messages,
+            ambient: false,
         }
     }
 
@@ -198,6 +203,7 @@ impl Palette {
             link: Color32::from_rgb(0x00, 0x66, 0xcc),
             read: Color32::from_rgb(0x00, 0x66, 0xcc),
             bubbles: BubbleStyle::Messages,
+            ambient: false,
         }
     }
 
@@ -231,6 +237,65 @@ impl Palette {
             // The lighter blue vanished on the green outgoing bubble.
             read: Color32::from_rgb(0x02, 0x7e, 0xb5),
             bubbles: BubbleStyle::WhatsApp,
+            ambient: false,
+        }
+    }
+
+    /// Pearl or ink glass with lavender accents, distinct from Messages'
+    /// neutral greys and system blue. It reuses the native material and frost.
+    pub fn aurora(dark: bool) -> Self {
+        if dark {
+            Self {
+                window: Color32::from_rgb(0x10, 0x15, 0x21),
+                panel: Color32::from_rgb(0x17, 0x1d, 0x2b),
+                surface: Color32::from_rgb(0x25, 0x2d, 0x41),
+                surface_hover: Color32::from_rgb(0x30, 0x39, 0x50),
+                surface_active: Color32::from_rgb(0x3c, 0x46, 0x60),
+                outline: Color32::from_rgb(0x36, 0x40, 0x57),
+                text: Color32::from_rgb(0xf4, 0xf6, 0xfc),
+                secondary: Color32::from_rgb(0xba, 0xc3, 0xd6),
+                dim: Color32::from_rgb(0xae, 0xb8, 0xcc),
+                accent: Color32::from_rgb(0xb1, 0xbd, 0xff),
+                accent_hover: Color32::from_rgb(0xca, 0xd3, 0xff),
+                on_accent: Color32::from_rgb(0x13, 0x1a, 0x30),
+                danger: Color32::from_rgb(0xff, 0x96, 0xa8),
+                warning: Color32::from_rgb(0xf5, 0xcb, 0x8a),
+                overlay: Color32::from_rgb(0x20, 0x27, 0x3a),
+                shadow: Color32::from_rgba_unmultiplied(12, 20, 46, 120),
+                chat: Color32::from_rgb(0x10, 0x15, 0x21),
+                bubble_in: Color32::from_rgb(0x29, 0x33, 0x47),
+                bubble_out: Color32::from_rgb(0x42, 0x58, 0x86),
+                link: Color32::from_rgb(0xb5, 0xd3, 0xff),
+                read: Color32::from_rgb(0xb5, 0xd3, 0xff),
+                ambient: true,
+                ..Self::messages()
+            }
+        } else {
+            Self {
+                window: Color32::from_rgb(0xee, 0xf2, 0xfa),
+                panel: Color32::from_rgb(0xf6, 0xf8, 0xfe),
+                surface: Color32::from_rgb(0xe5, 0xea, 0xf5),
+                surface_hover: Color32::from_rgb(0xd9, 0xe1, 0xf0),
+                surface_active: Color32::from_rgb(0xce, 0xd7, 0xe8),
+                outline: Color32::from_rgb(0xcc, 0xd6, 0xe8),
+                text: Color32::from_rgb(0x20, 0x29, 0x42),
+                secondary: Color32::from_rgb(0x48, 0x54, 0x70),
+                dim: Color32::from_rgb(0x52, 0x60, 0x7b),
+                accent: Color32::from_rgb(0x4f, 0x5a, 0xb8),
+                accent_hover: Color32::from_rgb(0x41, 0x4b, 0xa2),
+                on_accent: Color32::WHITE,
+                danger: Color32::from_rgb(0xb9, 0x2f, 0x4d),
+                warning: Color32::from_rgb(0x8a, 0x59, 0x16),
+                overlay: Color32::from_rgb(0xf8, 0xfa, 0xff),
+                shadow: Color32::from_rgba_unmultiplied(33, 45, 90, 36),
+                chat: Color32::from_rgb(0xe9, 0xef, 0xf8),
+                bubble_in: Color32::from_rgb(0xf8, 0xfa, 0xff),
+                bubble_out: Color32::from_rgb(0x4f, 0x5e, 0xb5),
+                link: Color32::from_rgb(0x3e, 0x53, 0xa5),
+                read: Color32::from_rgb(0x44, 0x5d, 0xaf),
+                ambient: true,
+                ..Self::messages_light()
+            }
         }
     }
 
@@ -241,6 +306,12 @@ impl Palette {
     /// which the text on the bubble is checked. `None` elsewhere.
     pub fn bubble_out_gradient(&self) -> Option<(Color32, Color32)> {
         (self.bubbles == BubbleStyle::Messages).then(|| {
+            if self.ambient {
+                return (
+                    self.bubble_out,
+                    self.bubble_out.lerp_to_gamma(Color32::BLACK, 0.2),
+                );
+            }
             let [_, bottom] = if self.dark {
                 MESSAGES_BLUE_DARK
             } else {
@@ -250,7 +321,7 @@ impl Palette {
         })
     }
 
-    /// Whether this is the Messages theme's glass: a frosted header, glass
+    /// Whether this theme uses glass: a frosted header, glass
     /// pills and tints, on every platform. Whether the desktop also shows
     /// through the window is [`crate::backdrop::active`].
     pub fn vibrant(&self) -> bool {
@@ -260,7 +331,10 @@ impl Palette {
     /// The chat list's background. Over a window's material it only darkens
     /// it a little; without one, it is the panel's own colour.
     pub fn sidebar(&self) -> Color32 {
-        if self.vibrant() && crate::backdrop::active() {
+        if self.ambient {
+            // The painted ambient base keeps this readable without a material.
+            self.panel.gamma_multiply(0.78)
+        } else if self.vibrant() && crate::backdrop::active() {
             self.panel.gamma_multiply(SIDEBAR_TINT)
         } else {
             self.panel
@@ -291,7 +365,7 @@ impl Palette {
     /// The conversation's background on a vibrant theme: mostly `color`,
     /// with a little of the material behind the window showing through.
     pub fn vibrant_chat(&self, color: Color32) -> Color32 {
-        color.gamma_multiply(CHAT_TINT)
+        color.gamma_multiply(if self.ambient { 0.7 } else { CHAT_TINT })
     }
 
     /// The veil of a vibrant header over the frosted messages under it, a
@@ -310,7 +384,9 @@ impl Palette {
     /// `color` than the veil, so text on it reads over any picture.
     pub fn vibrant_pill(&self, color: Color32) -> Color32 {
         // White glass reads as an opaque box well before dark glass does.
-        color.gamma_multiply(if self.dark {
+        color.gamma_multiply(if self.ambient {
+            0.82
+        } else if self.dark {
             PILL_TINT
         } else {
             LIGHT_PILL_TINT
@@ -333,7 +409,10 @@ impl Palette {
 
     /// The faint edge around glass.
     pub fn glass_edge(&self) -> Stroke {
-        Stroke::new(1.0, self.text.gamma_multiply(0.08))
+        Stroke::new(
+            1.0,
+            self.text.gamma_multiply(if self.ambient { 0.12 } else { 0.08 }),
+        )
     }
 
     /// The palette for a message bubble's contents. Secondary and dim text,
@@ -1727,6 +1806,8 @@ mod tests {
             ("light", Palette::light()),
             ("messages", Palette::messages()),
             ("messages light", Palette::messages_light()),
+            ("aurora dark", Palette::aurora(true)),
+            ("aurora light", Palette::aurora(false)),
         ] {
             let mut pairs = Vec::new();
             for (surface, background) in [
@@ -1766,6 +1847,50 @@ mod tests {
             ],
             4.5,
         );
+    }
+
+    /// Aurora keeps readable text and controls on both sides of its gradient.
+    #[test]
+    fn aurora_glass_is_distinct_and_readable() {
+        for dark in [false, true] {
+            let p = Palette::aurora(dark);
+            let messages = if dark {
+                Palette::messages()
+            } else {
+                Palette::messages_light()
+            };
+            assert!(p.ambient && p.vibrant());
+            assert_eq!(p.dark, dark);
+            assert_ne!(p.accent, messages.accent);
+            assert_ne!(p.window, messages.window);
+            assert_ne!(p.bubble_out_gradient(), messages.bubble_out_gradient());
+            assert_readable(
+                "aurora controls",
+                &[
+                    ("accent", p.accent, p.panel),
+                    ("button", p.on_accent, p.accent),
+                    ("hovered button", p.on_accent, p.accent_hover),
+                ],
+                4.5,
+            );
+            let (top, bottom) = p.bubble_out_gradient().unwrap();
+            for (own, fills) in [(false, [p.bubble_in; 2]), (true, [top, bottom])] {
+                let inside = p.on_bubble(own);
+                for fill in fills {
+                    assert_readable(
+                        "aurora bubbles",
+                        &[
+                            ("body", inside.text, fill),
+                            ("secondary", inside.secondary, fill),
+                            ("dim", inside.dim, fill),
+                            ("link", inside.link, fill),
+                        ],
+                        4.5,
+                    );
+                    assert_readable("aurora receipts", &[("read", inside.read, fill)], 3.0);
+                }
+            }
+        }
     }
 
     /// Links in others' Messages bubbles reach WCAG AA, as does their
@@ -1824,8 +1949,10 @@ mod tests {
     fn stored_palettes_keep_whatsapp_bubbles() {
         let mut stored = serde_json::to_value(Palette::messages()).unwrap();
         stored["bubbles"] = "messages".into();
+        stored["ambient"] = true.into();
         let palette: Palette = serde_json::from_value(stored).unwrap();
         assert_eq!(palette.bubbles, BubbleStyle::WhatsApp);
+        assert!(!palette.ambient);
     }
 
     /// Bubble contents stay readable for every palette, custom ones included.
