@@ -11405,8 +11405,7 @@ impl App {
         self.toast_error(format!("Could not record: {error}"));
     }
 
-    /// Replace a macOS window when the selected theme needs a different surface.
-    #[cfg(target_os = "macos")]
+    /// Replace the window when the selected theme needs a different surface.
     pub fn match_window_transparency(&mut self, ctx: &egui::Context, transparent: bool) {
         let wanted = crate::backdrop::transparent_window(
             self.palette.vibrant(),
@@ -18265,7 +18264,6 @@ mod tests {
         );
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
     fn switching_transparency_reopens_the_window_without_losing_the_chat() {
         use fastframe_shell::{Closed, Resident};
@@ -18273,15 +18271,20 @@ mod tests {
         let mut app = app();
         app.open_chat = Some("test-chat".into());
         app.palette = crate::theme::Palette::messages();
-        app.match_window_transparency(&ctx, false);
-        assert_eq!(app.closed(), Closed::Reopen);
+        let wanted = crate::backdrop::transparent_window(
+            app.palette.vibrant(),
+            app.palette.window.a() < 255,
+        );
+        app.match_window_transparency(&ctx, !wanted);
+        assert!(app.reopen, "a mismatched window is replaced");
         assert_eq!(app.open_chat.as_deref(), Some("test-chat"));
 
         app.reopen = false;
-        app.match_window_transparency(&ctx, true);
+        app.match_window_transparency(&ctx, wanted);
         assert!(!app.reopen, "a matching window stays open");
         app.palette = crate::theme::Palette::dark();
         app.match_window_transparency(&ctx, true);
+        assert!(app.reopen, "switching back to an opaque theme replaces it");
         assert_eq!(app.closed(), Closed::Reopen);
         assert_eq!(app.open_chat.as_deref(), Some("test-chat"));
 
