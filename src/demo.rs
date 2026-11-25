@@ -9928,25 +9928,39 @@ mod tests {
 
     /// The clickable widgets of the last frame that lie under `rects`,
     /// leaving out what catches clicks across a whole screen or panel (the
-    /// call screen's and the viewer's backdrops).
-    fn widgets_under(ctx: &egui::Context, rects: &[egui::Rect]) -> Vec<(egui::Id, egui::Rect)> {
+    /// call screen's and the viewer's backdrops). On a vibrant theme,
+    /// `frosted` is the chat header's rect: messages scroll on under it on
+    /// the window's own layer, so those message rows are behind the frost,
+    /// not header controls. The header's controls are drawn on the layer
+    /// above it and are still checked.
+    fn widgets_under(
+        ctx: &egui::Context,
+        rects: &[egui::Rect],
+        frosted: Option<egui::Rect>,
+    ) -> Vec<(egui::Id, egui::Rect)> {
         let window = ctx.content_rect();
         ctx.viewport(|viewport| {
             viewport
                 .prev_pass
                 .widgets
                 .layers()
-                .flat_map(|(_, widgets)| widgets.iter())
-                .filter(|widget| {
-                    widget.enabled
-                        && widget.visible
-                        && widget.sense.senses_click()
-                        && widget.interact_rect.is_positive()
-                        && widget.interact_rect.height() < window.height() / 2.0
-                        && widget.interact_rect.width() < window.width() * 0.9
-                        && rects
-                            .iter()
-                            .any(|rect| rect.intersects(widget.interact_rect.shrink(0.5)))
+                .flat_map(|(layer, widgets)| {
+                    widgets.iter().filter(move |widget| {
+                        let under_frost = frosted.is_some_and(|frosted| {
+                            layer.order == egui::Order::Background
+                                && frosted.intersects(widget.interact_rect)
+                        });
+                        !under_frost
+                            && widget.enabled
+                            && widget.visible
+                            && widget.sense.senses_click()
+                            && widget.interact_rect.is_positive()
+                            && widget.interact_rect.height() < window.height() / 2.0
+                            && widget.interact_rect.width() < window.width() * 0.9
+                            && rects
+                                .iter()
+                                .any(|rect| rect.intersects(widget.interact_rect.shrink(0.5)))
+                    })
                 })
                 .map(|widget| (widget.id, widget.interact_rect))
                 .collect()
@@ -10064,7 +10078,14 @@ mod tests {
                 app.attach(&ctx);
                 crate::theme::preview_titlebar(&ctx, footprint);
                 render_sized(&mut app, &ctx, size);
-                let under = widgets_under(&ctx, &caption_rects(footprint, size.x));
+                let frosted = if app.palette.vibrant() {
+                    ctx.data(|data| {
+                        data.get_temp::<egui::Rect>(crate::ui::conversation::header_rect_id())
+                    })
+                } else {
+                    None
+                };
+                let under = widgets_under(&ctx, &caption_rects(footprint, size.x), frosted);
                 assert!(
                     under.is_empty(),
                     "{page} at {size:?} with {footprint:?}: {under:?} under the caption buttons"
@@ -10077,7 +10098,7 @@ mod tests {
         let ctx = egui::Context::default();
         app.attach(&ctx);
         render_sized(&mut app, &ctx, wide);
-        assert!(!widgets_under(&ctx, &caption_rects(footprints[0], wide.x)).is_empty());
+        assert!(!widgets_under(&ctx, &caption_rects(footprints[0], wide.x), None).is_empty());
     }
 
     /// A header shares the caption row only at a corner it reaches: beside
