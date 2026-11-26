@@ -362,6 +362,9 @@ impl PreviewState {
         let mut text = String::new();
         for page in start.page..=end.page {
             let glyphs = self.text.get(page)?;
+            if glyphs.is_empty() {
+                continue;
+            }
             if page > start.page {
                 text.push('\n');
             }
@@ -691,6 +694,31 @@ mod tests {
         assert!(!state.has_selection());
         state.clear_selection();
         assert!(!state.has_selection());
+    }
+
+    #[test]
+    fn selection_across_an_empty_page_skips_it() {
+        let mut state = test_state();
+        state.set_text(vec![
+            vec![glyph(0, 0, "A", 0.0)],
+            Vec::new(),
+            vec![glyph(2, 0, "B", 0.0)],
+        ]);
+        let pages = [
+            PageGeometry {
+                page: 0,
+                rect: egui::Rect::from_min_size(egui::pos2(0.0, 0.0), vec2(200.0, 300.0)),
+                size: vec2(200.0, 300.0),
+            },
+            PageGeometry {
+                page: 2,
+                rect: egui::Rect::from_min_size(egui::pos2(0.0, 0.0), vec2(200.0, 300.0)),
+                size: vec2(200.0, 300.0),
+            },
+        ];
+        assert!(state.select(egui::pos2(5.0, 5.0), &pages, false));
+        assert!(state.select(egui::pos2(5.0, 5.0), &pages[1..], true));
+        assert_eq!(state.selection_text().as_deref(), Some("A\nB"));
     }
 
     #[test]

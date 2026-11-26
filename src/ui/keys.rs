@@ -461,11 +461,11 @@ fn pdf_keys(app: &mut App, ctx: &egui::Context) {
                 && let Some(action) = crate::pdf_preview::key_action(*key, *modifiers)
             {
                 let search_key = matches!(
-                    action,
+                    &action,
                     Action::PdfFind | Action::PdfMatch(_) | Action::PdfCopySelection
                 );
                 if !search_focused || search_key {
-                    if !matches!(action, Action::PdfCopySelection) || copy_available {
+                    if !matches!(&action, Action::PdfCopySelection) || copy_available {
                         actions.push(action);
                     }
                 }
