@@ -689,8 +689,10 @@ mod tests {
         assert_eq!(state.selection_text().as_deref(), Some("Find me"));
         assert_eq!(state.selection_rects(0).len(), 2);
         assert!(state.has_selection());
+        assert!(state.select(egui::pos2(15.0, 5.0), &pages, false));
         assert!(state.select(egui::pos2(5.0, 5.0), &pages, true));
         assert_eq!(state.selection_text().as_deref(), Some("Find me"));
+        assert_eq!(state.selection_rects(0).len(), 2);
         assert!(!state.select(egui::pos2(150.0, 150.0), &pages, false));
         assert!(!state.has_selection());
         state.clear_selection();

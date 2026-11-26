@@ -149,7 +149,7 @@ fn run(
     }
     ctx.request_repaint();
 
-    let text = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| extract_text(&pages)))
+    let text = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| extract_text(pages)))
         .unwrap_or_default();
     if events.send(Event::Text(text)).is_err() {
         return;
@@ -433,7 +433,7 @@ pub fn demo_pdf() -> Vec<u8> {
 pub fn demo_text() -> Vec<Vec<TextGlyph>> {
     let pdf = Pdf::new(demo_pdf()).expect("the synthetic PDF parses");
     let pages = pdf.pages();
-    extract_text(&pages)
+    extract_text(pages)
 }
 
 #[cfg(any(test, feature = "demo"))]
@@ -485,7 +485,7 @@ mod tests {
     fn synthetic_pdf_text_is_extracted_in_document_coordinates() {
         let pdf = Pdf::new(demo_pdf()).unwrap();
         let pages = pdf.pages();
-        let text = extract_text(&pages);
+        let text = extract_text(pages);
         assert_eq!(text.len(), 2);
         let joined: String = text
             .iter()

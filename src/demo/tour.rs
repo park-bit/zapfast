@@ -1811,7 +1811,7 @@ mod tests {
             frame(&mut app, &mut tour, &ctx, Vec::new());
         }
         click(&mut app, &mut tour, &ctx, "Dark");
-        let menu_pos = tour.labels["Nord"];
+        let menu_pos = tour.labels["Follow system"];
         for name in [
             "Follow system",
             "Light",

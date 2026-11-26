@@ -464,10 +464,10 @@ fn pdf_keys(app: &mut App, ctx: &egui::Context) {
                     &action,
                     Action::PdfFind | Action::PdfMatch(_) | Action::PdfCopySelection
                 );
-                if !search_focused || search_key {
-                    if !matches!(&action, Action::PdfCopySelection) || copy_available {
-                        actions.push(action);
-                    }
+                if (!search_focused || search_key)
+                    && (!matches!(&action, Action::PdfCopySelection) || copy_available)
+                {
+                    actions.push(action);
                 }
             }
         }
