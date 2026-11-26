@@ -132,12 +132,12 @@ fn run(
 
     let interpreter = InterpreterSettings::default();
     let settings = RenderSettings::default();
-    let cache = RenderCache::new();
     while let Ok(request) = requests.recv() {
         let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             render_page(
                 &pages[request.page],
-                &cache,
+                // Hayro cannot clear its cache. Don't retain resources from every page read.
+                &RenderCache::new(),
                 &interpreter,
                 &settings,
                 request.scale,

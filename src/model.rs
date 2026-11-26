@@ -3457,6 +3457,7 @@ pub enum Action {
     },
     /// Removes one pending attachment.
     RemovePending(usize),
+    CompressAttachment(crate::app::AttachmentId),
     /// Sends the one eligible staged photo as a WhatsApp view-once message.
     SetPendingViewOnce(bool),
     /// Opens the cropper on a staged picture.

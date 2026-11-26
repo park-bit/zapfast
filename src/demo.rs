@@ -2134,12 +2134,15 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                 });
             }
             "pdf-preview" => {
-                app.pdf_preview = Some(crate::pdf_preview::PreviewState::new(
+                let mut preview = crate::pdf_preview::PreviewState::new(
                     sample_pdf_path(app),
                     app.open_chat
                         .clone()
                         .unwrap_or_else(|| SAMPLES[0].id.into()),
-                ));
+                );
+                // Leave the next sheet visible in the synthetic preview capture.
+                preview.zoom_by(0.75);
+                app.pdf_preview = Some(preview);
             }
             "media-album" => media_album_sample(app, true),
             "media-album-replies" => {
@@ -12898,6 +12901,41 @@ mod tests {
         };
         assert_eq!(texture.size(), [1024, 512]);
         assert!(new_ctx.tex_manager().read().meta(texture.id()).is_some());
+    }
+
+    #[test]
+    fn pdf_wheel_scrolls_to_the_next_page() {
+        let mut app = app();
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        apply_flags(&mut app, Some("pdf-preview"));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while app.pdf_preview.as_ref().unwrap().page_count() != 2 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "PDF metadata did not load"
+            );
+            render(&mut app, &ctx);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(app.pdf_preview.as_ref().unwrap().page(), 0);
+        for _ in 0..8 {
+            frame_sized(
+                &mut app,
+                &ctx,
+                780.0,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(590.0, 390.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, -12.0),
+                        modifiers: egui::Modifiers::NONE,
+                        phase: egui::TouchPhase::Move,
+                    },
+                ],
+            );
+        }
+        assert_eq!(app.pdf_preview.as_ref().unwrap().page(), 1);
     }
 
     /// Tab reaches review controls and Space activates the focused close button.

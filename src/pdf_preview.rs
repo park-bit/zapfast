@@ -1,11 +1,15 @@
 //! State for the native PDF viewer. Rendering stays on its own worker.
 
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 
 use egui::{Key, Modifiers, TextureHandle};
 
 use crate::model::ChatId;
 use crate::pdf::{self, Event, Request, Worker};
+
+const CACHED_PAGES: usize = 6;
+const PAGE_GAP: f32 = 16.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Status {
@@ -23,11 +27,10 @@ pub struct PreviewState {
     pages: Vec<(f32, f32)>,
     page: usize,
     zoom: f32,
-    fit: bool,
-    target_scale: Option<f32>,
+    jump: Option<usize>,
     requested: Option<(u64, usize, f32)>,
-    rendered: Option<(usize, f32, TextureHandle)>,
-    page_error: Option<&'static str>,
+    rendered: VecDeque<(usize, f32, TextureHandle)>,
+    page_errors: HashMap<usize, &'static str>,
     next_request: u64,
 }
 
@@ -42,11 +45,10 @@ impl PreviewState {
             pages: Vec::new(),
             page: 0,
             zoom: 1.0,
-            fit: true,
-            target_scale: None,
+            jump: Some(0),
             requested: None,
-            rendered: None,
-            page_error: None,
+            rendered: VecDeque::new(),
+            page_errors: HashMap::new(),
             next_request: 0,
         }
     }
@@ -62,7 +64,7 @@ impl PreviewState {
         }
     }
 
-    pub fn poll(&mut self, ctx: &egui::Context, viewport: egui::Vec2) {
+    pub fn poll(&mut self, ctx: &egui::Context) {
         self.start(ctx);
         loop {
             let event = match self.worker.as_ref().map(Worker::next_event) {
@@ -90,7 +92,11 @@ impl PreviewState {
                     if current {
                         let scale = self.requested.map_or(1.0, |(_, _, scale)| scale);
                         self.requested = None;
-                        self.rendered = Some((
+                        self.rendered.retain(|(cached, _, _)| *cached != page);
+                        if self.rendered.len() == CACHED_PAGES {
+                            self.rendered.pop_front();
+                        }
+                        self.rendered.push_back((
                             page,
                             scale,
                             ctx.load_texture(
@@ -99,7 +105,6 @@ impl PreviewState {
                                 egui::TextureOptions::LINEAR,
                             ),
                         ));
-                        self.page_error = None;
                     }
                 }
                 Event::Failed { request, message } => {
@@ -108,48 +113,55 @@ impl PreviewState {
                         self.status = Status::Failed(message);
                         break;
                     }
-                    let current = self
-                        .requested
-                        .is_some_and(|(id, page, _)| Some(id) == request && page == self.page);
-                    if current {
+                    if let Some((id, page, _)) = self.requested
+                        && Some(id) == request
+                    {
                         self.requested = None;
-                        self.page_error = Some(message);
-                    } else if self.requested.is_some_and(|(id, _, _)| Some(id) == request) {
-                        self.requested = None;
+                        self.page_errors.insert(page, message);
                     }
                 }
             }
         }
-
-        if self.status == Status::Ready
-            && let Some((width, height)) = self.pages.get(self.page).copied()
-        {
-            let fit = fit_scale((width, height), viewport);
-            let scale = (fit * self.zoom * ctx.pixels_per_point()).max(0.01);
-            self.target_scale = pdf::render_scale(width, height, scale);
-            self.request_page_if_needed();
-        }
     }
 
-    fn request_page_if_needed(&mut self) {
-        let Some(scale) = self.target_scale else {
-            return;
-        };
-        if self.requested.is_some_and(|(_, page, requested_scale)| {
-            page == self.page && (scale - requested_scale).abs() < 0.05
-        }) || self
-            .rendered
-            .as_ref()
-            .is_some_and(|(page, rendered_scale, _)| {
-                *page == self.page && (scale - rendered_scale).abs() < 0.05
-            })
-        {
+    pub fn request_visible(
+        &mut self,
+        viewport: egui::Vec2,
+        pixels_per_point: f32,
+        visible: std::ops::Range<usize>,
+    ) {
+        if self.requested.is_some() {
             return;
         }
+        let nearby = [visible.end, visible.start.saturating_sub(1)];
+        let candidates: Vec<_> = visible
+            .chain(nearby)
+            .filter(|&page| page < self.pages.len())
+            .take(CACHED_PAGES)
+            .collect();
+        let Some((page, scale)) = candidates.iter().find_map(|&page| {
+            let (width, height) = self.pages[page];
+            let scale = pdf::render_scale(
+                width,
+                height,
+                fit_scale((width, height), viewport) * self.zoom * pixels_per_point,
+            )?;
+            (!self.page_errors.contains_key(&page)
+                && !self.rendered.iter().any(|(cached, rendered_scale, _)| {
+                    *cached == page && (scale - rendered_scale).abs() < scale * 0.05
+                }))
+            .then_some((page, scale))
+        }) else {
+            return;
+        };
+        // Keep visible pages ahead of old pages in the eviction order.
+        self.rendered
+            .make_contiguous()
+            .sort_by_key(|(page, _, _)| candidates.contains(page));
         self.next_request = self.next_request.wrapping_add(1);
         let request = Request {
             id: self.next_request,
-            page: self.page,
+            page,
             scale,
         };
         if self
@@ -157,7 +169,7 @@ impl PreviewState {
             .as_ref()
             .is_some_and(|worker| worker.request(request))
         {
-            self.requested = Some((self.next_request, self.page, scale));
+            self.requested = Some((self.next_request, page, scale));
         }
     }
 
@@ -167,22 +179,22 @@ impl PreviewState {
         };
         if next < self.pages.len() {
             self.page = next;
-            self.page_error = None;
+            self.jump = Some(next);
         }
     }
 
     pub fn zoom_by(&mut self, factor: f32) {
         if factor.is_finite() && factor > 0.0 {
             self.zoom = (self.zoom * factor).clamp(0.25, 4.0);
-            self.fit = false;
-            self.page_error = None;
+            self.jump = Some(self.page);
+            self.page_errors.clear();
         }
     }
 
     pub fn fit(&mut self) {
         self.zoom = 1.0;
-        self.fit = true;
-        self.page_error = None;
+        self.jump = Some(self.page);
+        self.page_errors.clear();
     }
 
     pub fn path(&self) -> &Path {
@@ -201,35 +213,46 @@ impl PreviewState {
         self.pages.len()
     }
 
-    pub fn page_size(&self) -> Option<(f32, f32)> {
-        self.pages.get(self.page).copied()
+    pub fn layout(&self, viewport: egui::Vec2) -> Vec<egui::Rect> {
+        let mut top = 0.0;
+        self.pages
+            .iter()
+            .map(|&(width, height)| {
+                let size =
+                    egui::vec2(width, height) * (fit_scale((width, height), viewport) * self.zoom);
+                let rect = egui::Rect::from_min_size(egui::pos2(0.0, top), size);
+                top += size.y + PAGE_GAP;
+                rect
+            })
+            .collect()
     }
 
-    pub fn display_size(&self, viewport: egui::Vec2) -> Option<egui::Vec2> {
-        let (width, height) = self.page_size()?;
-        Some(egui::vec2(width, height) * (fit_scale((width, height), viewport) * self.zoom))
+    pub fn take_jump(&mut self) -> Option<usize> {
+        self.jump.take()
+    }
+
+    pub fn scrolled_to(&mut self, page: usize) -> bool {
+        let changed = self.page != page;
+        self.page = page;
+        changed
     }
 
     pub fn zoom(&self) -> f32 {
         self.zoom
     }
 
-    pub fn is_fit(&self) -> bool {
-        self.fit
-    }
-
     pub fn status(&self) -> Status {
         self.status
     }
 
-    pub fn page_error(&self) -> Option<&'static str> {
-        self.page_error
+    pub fn page_error(&self, page: usize) -> Option<&'static str> {
+        self.page_errors.get(&page).copied()
     }
 
-    pub fn texture(&self) -> Option<&TextureHandle> {
+    pub fn texture(&self, page: usize) -> Option<&TextureHandle> {
         self.rendered
-            .as_ref()
-            .filter(|(page, _, _)| *page == self.page)
+            .iter()
+            .find(|(cached, _, _)| *cached == page)
             .map(|(_, _, texture)| texture)
     }
 }
@@ -276,27 +299,25 @@ mod tests {
             pages: vec![(200.0, 300.0), (300.0, 200.0)],
             page: 0,
             zoom: 1.0,
-            fit: true,
-            target_scale: None,
+            jump: None,
             requested: None,
-            rendered: None,
-            page_error: None,
+            rendered: VecDeque::new(),
+            page_errors: HashMap::new(),
             next_request: 0,
         };
         state.move_page(-1);
         assert_eq!(state.page(), 0);
         state.move_page(1);
         assert_eq!(state.page(), 1);
+        assert_eq!(state.take_jump(), Some(1));
         state.move_page(1);
         assert_eq!(state.page(), 1);
         state.zoom_by(2.0);
         assert_eq!(state.zoom(), 2.0);
-        assert!(!state.is_fit());
         state.zoom_by(f32::INFINITY);
         assert_eq!(state.zoom(), 2.0);
         state.fit();
         assert_eq!(state.zoom(), 1.0);
-        assert!(state.is_fit());
     }
 
     #[test]

@@ -301,6 +301,12 @@ instead. The files you select there go as documents with their own name and
 bytes, pictures included, and show as files in the review area until you send
 them.
 
+Select a staged file and choose **Create ZIP copy** to compress it on this
+computer. ZapFast replaces the staged file only if the ZIP is smaller and shows
+both sizes. Your original stays untouched. Already compressed files, such as
+many PDFs, photos, and videos, may not shrink. Press **Send** to send the ZIP
+as a document; WhatsApp's upload limits still apply.
+
 Videos go as playable video messages only when they are MP4. WhatsApp does
 not deliver a video message in another format, and ZapFast does not convert
 videos, so a QuickTime `.mov`, WebM, MKV, or AVI file goes as a document
@@ -367,8 +373,9 @@ it again. A live-location share shows the position this linked device received;
 WhatsApp sends later positions only to the phone. ZapFast marks when newer
 positions are available there, but cannot follow the moving location here.
 
-Click a downloaded PDF to read it in ZapFast. Use the page arrows or Left and
-Right, zoom with the buttons or `+` and `-`, and press `0` to fit the page.
+Click a downloaded PDF to read it in ZapFast. Scroll vertically through pages
+with the mouse or trackpad, or jump with the page arrows, Left and Right, or
+Page Up and Page Down. Zoom with the buttons or `+` and `-`, and press `0` to fit.
 **Open in another app** sends it to your system's PDF viewer. Previewing is
 limited to PDFs up to 64 MiB and 2,000 pages; password-protected, complex, or
 unsupported files can be opened in another app instead. PDF contents stay on
