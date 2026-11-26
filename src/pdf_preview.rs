@@ -73,6 +73,7 @@ pub struct PreviewState {
     page_errors: HashMap<usize, &'static str>,
     next_request: u64,
     text: Vec<Vec<TextGlyph>>,
+    search_open: bool,
     query: String,
     matches: Vec<SearchMatch>,
     active_match: usize,
@@ -96,6 +97,7 @@ impl PreviewState {
             page_errors: HashMap::new(),
             next_request: 0,
             text: Vec::new(),
+            search_open: false,
             query: String::new(),
             matches: Vec::new(),
             active_match: 0,
@@ -268,6 +270,14 @@ impl PreviewState {
         self.pages.len()
     }
 
+    pub fn page_dimensions(&self, page: usize) -> egui::Vec2 {
+        self.pages
+            .get(page)
+            .map_or(egui::Vec2::ZERO, |&(width, height)| {
+                egui::vec2(width, height)
+            })
+    }
+
     pub fn layout(&self, viewport: egui::Vec2) -> Vec<egui::Rect> {
         let mut top = 0.0;
         self.pages
@@ -312,8 +322,25 @@ impl PreviewState {
     }
 
     pub fn set_text(&mut self, text: Vec<Vec<TextGlyph>>) {
+        if self.text == text {
+            return;
+        }
         self.text = text;
         self.selection = None;
+        self.recompute_matches();
+    }
+
+    pub fn search_open(&self) -> bool {
+        self.search_open
+    }
+
+    pub fn open_search(&mut self) {
+        self.search_open = true;
+    }
+
+    pub fn close_search(&mut self) {
+        self.search_open = false;
+        self.query.clear();
         self.recompute_matches();
     }
 
@@ -322,8 +349,14 @@ impl PreviewState {
     }
 
     pub fn set_query(&mut self, query: String) {
+        if !query.is_empty() {
+            self.search_open = true;
+        }
         self.query = query;
         self.recompute_matches();
+        if let Some(first) = self.matches.first() {
+            self.jump = Some(first.page);
+        }
     }
 
     pub fn match_count(&self) -> usize {
@@ -365,7 +398,7 @@ impl PreviewState {
             if glyphs.is_empty() {
                 continue;
             }
-            if page > start.page {
+            if page > start.page && !text.is_empty() {
                 text.push('\n');
             }
             let first = if page == start.page { start.glyph } else { 0 };
@@ -377,17 +410,30 @@ impl PreviewState {
             if first > last {
                 continue;
             }
+            let mut prev: Option<&TextGlyph> = None;
             for glyph in glyphs[first..=last].iter() {
+                if let Some(previous) = prev {
+                    let line_height = previous.rect.height().max(glyph.rect.height());
+                    if line_height > 0.0
+                        && (glyph.origin.1 - previous.origin.1).abs() > line_height * 0.55
+                        && !text.ends_with('\n')
+                    {
+                        text.push('\n');
+                    }
+                }
                 text.push_str(&glyph.text);
+                prev = Some(glyph);
             }
         }
         Some(text)
     }
 
-    /// Starts or extends a selection from a screen pointer. Returns whether
-    /// the pointer landed on extractable text, so the UI can claim the drag.
-    pub fn select(&mut self, pointer: egui::Pos2, pages: &[PageGeometry], extend: bool) -> bool {
-        let cursor = pages.iter().find_map(|geometry| {
+    pub fn hits_text(&self, pointer: egui::Pos2, pages: &[PageGeometry]) -> bool {
+        self.exact_cursor(pointer, pages).is_some()
+    }
+
+    fn exact_cursor(&self, pointer: egui::Pos2, pages: &[PageGeometry]) -> Option<TextCursor> {
+        pages.iter().find_map(|geometry| {
             let document = geometry.document_point(pointer)?;
             let glyphs = self.text.get(geometry.page)?;
             glyphs
@@ -399,6 +445,33 @@ impl PreviewState {
                     page: geometry.page,
                     glyph,
                 })
+        })
+    }
+
+    fn nearest_cursor(&self, pointer: egui::Pos2, pages: &[PageGeometry]) -> Option<TextCursor> {
+        pages.iter().find_map(|geometry| {
+            let document = geometry.document_point(pointer)?;
+            let glyphs = self.text.get(geometry.page)?;
+            glyphs
+                .iter()
+                .enumerate()
+                .min_by(|(_, a), (_, b)| {
+                    glyph_distance(a.rect, document).total_cmp(&glyph_distance(b.rect, document))
+                })
+                .map(|(glyph, _)| TextCursor {
+                    page: geometry.page,
+                    glyph,
+                })
+        })
+    }
+
+    /// Starts or extends a selection from a screen pointer. Returns whether
+    /// the pointer landed on extractable text, so the UI can claim the drag.
+    pub fn select(&mut self, pointer: egui::Pos2, pages: &[PageGeometry], extend: bool) -> bool {
+        let cursor = self.exact_cursor(pointer, pages).or_else(|| {
+            (extend && self.selection.is_some())
+                .then(|| self.nearest_cursor(pointer, pages))
+                .flatten()
         });
         let Some(cursor) = cursor else {
             // A fresh press on empty paper ends the old selection; extending
@@ -414,6 +487,15 @@ impl PreviewState {
             self.selection = Some((cursor, cursor));
         }
         true
+    }
+
+    pub fn active_match_rect(&self, page: usize) -> Option<egui::Rect> {
+        let found = self.matches.get(self.active_match)?;
+        if found.page != page {
+            return None;
+        }
+        let glyphs = self.text.get(page)?;
+        Some(union_rects(glyphs, found.first, found.last))
     }
 
     /// Inactive first, active last, so the UI paints the current result over
@@ -518,6 +600,25 @@ impl PreviewState {
     }
 }
 
+fn glyph_distance(rect: egui::Rect, point: egui::Pos2) -> f32 {
+    let dx = if point.x < rect.min.x {
+        rect.min.x - point.x
+    } else if point.x > rect.max.x {
+        point.x - rect.max.x
+    } else {
+        0.0
+    };
+    let dy = if point.y < rect.min.y {
+        rect.min.y - point.y
+    } else if point.y > rect.max.y {
+        point.y - rect.max.y
+    } else {
+        0.0
+    };
+    // Prefer glyphs on the same line before jumping lines.
+    dy * 4.0 + dx
+}
+
 fn union_rects(glyphs: &[TextGlyph], first: usize, last: usize) -> egui::Rect {
     let mut rect = glyphs[first].rect;
     for glyph in glyphs.iter().take(last + 1).skip(first + 1) {
@@ -592,6 +693,7 @@ mod tests {
             page_errors: HashMap::new(),
             next_request: 0,
             text: Vec::new(),
+            search_open: false,
             query: String::new(),
             matches: Vec::new(),
             active_match: 0,
@@ -751,5 +853,30 @@ mod tests {
             Some(crate::model::Action::PdfMatch(-1))
         );
         assert_eq!(key_action(Key::F, Modifiers::NONE), None);
+    }
+
+    #[test]
+    fn scaled_geometry_maps_screen_points_and_multiline_selection() {
+        let mut state = test_state();
+        state.pages = vec![(200.0, 300.0)];
+        let line_two = TextGlyph {
+            page: 0,
+            order: 1,
+            text: "Second".into(),
+            origin: (10.0, 46.0),
+            rect: egui::Rect::from_min_max(egui::pos2(10.0, 30.0), egui::pos2(50.0, 50.0)),
+        };
+        state.set_text(vec![vec![glyph(0, 0, "First", 10.0), line_two]]);
+        let pages = [PageGeometry {
+            page: 0,
+            rect: egui::Rect::from_min_size(egui::pos2(50.0, 20.0), vec2(400.0, 600.0)),
+            size: state.page_dimensions(0),
+        }];
+        // Screen point (80, 30) maps to document (15, 5), inside "First".
+        assert!(state.hits_text(egui::pos2(80.0, 30.0), &pages));
+        assert!(state.select(egui::pos2(80.0, 30.0), &pages, false));
+        // Extending into whitespace past the end of line 2 picks "Second".
+        assert!(state.select(egui::pos2(300.0, 100.0), &pages, true));
+        assert_eq!(state.selection_text().as_deref(), Some("First\nSecond"));
     }
 }

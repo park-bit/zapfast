@@ -6,7 +6,7 @@ use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, sync_channel};
 use std::thread;
 
 use egui::ColorImage;
-use hayro::hayro_interpret::font::GlyphRun;
+use hayro::hayro_interpret::font::{Glyph, GlyphRun};
 use hayro::hayro_interpret::hayro_cmap::BfString;
 use hayro::hayro_interpret::{
     BlendMode, ClipPath, Context, DrawMode, DrawProps, Image, ImageDrawProps, InterpreterCache,
@@ -341,6 +341,8 @@ impl hayro::hayro_interpret::Device<'_> for TextExtractor {
     fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'_>>, _: BlendMode) {}
 
     fn draw_glyph_run(&mut self, glyph_run: &GlyphRun<'_, '_>, props: DrawProps<'_>, _: &DrawMode) {
+        // Hayro scales glyph transforms by 1 / UNITS_PER_EM (1000).
+        const UNITS_PER_EM: f64 = 1000.0;
         if self.glyphs.len() >= self.limit {
             return;
         }
@@ -354,23 +356,60 @@ impl hayro::hayro_interpret::Device<'_> for TextExtractor {
             let transform = props.transform * glyph.transform();
             let origin = transform * Point::ZERO;
             let [a, b, c, d, _, _] = transform.as_coeffs();
-            let height = c.hypot(d).max(a.hypot(b) * 0.25) as f32;
+            let em_x = (a.hypot(b) * UNITS_PER_EM) as f32;
+            let em_y = (c.hypot(d) * UNITS_PER_EM) as f32;
+            let height = em_y.max(em_x * 0.25);
             if !height.is_finite() || height <= 0.0 {
                 continue;
             }
             // shortcut: rotated text gets an axis-aligned box from its
             // baseline, enough for selection in ordinary PDF attachments.
-            let advance = glyphs
+            let font_advance = match &**glyph {
+                Glyph::Outline(g) => g.advance_width(),
+                Glyph::Type3(g) => g.advance_width(),
+            }
+            .map(|width| width * a.hypot(b) as f32)
+            .filter(|width| width.is_finite() && *width > 0.0 && *width < height * 4.0);
+            let next_advance = glyphs
                 .get(index + 1)
-                .map(|next| ((props.transform * next.transform() * Point::ZERO) - origin).hypot())
-                .filter(|width| *width > 0.0 && *width < f64::from(height) * 4.0)
-                .unwrap_or(f64::from(height) * 0.6 * text.chars().count().max(1) as f64)
-                as f32;
+                .map(|next| {
+                    ((props.transform * next.transform() * Point::ZERO) - origin).hypot() as f32
+                })
+                .filter(|width| width.is_finite() && *width > 0.0 && *width < height * 1.8);
+            let advance = font_advance
+                .or(next_advance)
+                .unwrap_or_else(|| height * 0.55 * text.chars().count().max(1) as f32);
             let top = (origin.y - f64::from(height) * 0.82) as f32;
             let rect = egui::Rect::from_min_size(
                 egui::pos2(origin.x as f32, top),
                 egui::vec2(advance, height),
             );
+            if let Some(prev) = self.glyphs.last()
+                && prev.page == self.page
+                && (origin.y as f32 - prev.origin.1).abs() < height * 0.4
+            {
+                let gap = origin.x as f32 - prev.rect.max.x;
+                let needs_space = gap > height * 0.22
+                    && gap < height * 4.0
+                    && !prev.text.chars().last().is_some_and(char::is_whitespace)
+                    && !text.chars().next().is_some_and(char::is_whitespace);
+                if needs_space && self.glyphs.len() < self.limit {
+                    self.glyphs.push(TextGlyph {
+                        page: self.page,
+                        order: self.order,
+                        text: " ".into(),
+                        origin: (prev.rect.max.x, prev.origin.1),
+                        rect: egui::Rect::from_min_max(
+                            egui::pos2(prev.rect.max.x, top),
+                            egui::pos2(origin.x as f32, top + height),
+                        ),
+                    });
+                    self.order += 1;
+                }
+            }
+            if self.glyphs.len() >= self.limit {
+                return;
+            }
             self.glyphs.push(TextGlyph {
                 page: self.page,
                 order: self.order,
@@ -504,6 +543,53 @@ mod tests {
         assert_eq!(find.order, 0);
         assert!(find.rect.min.x >= 0.0 && find.rect.max.x <= 200.0);
         assert!(find.rect.min.y >= 0.0 && find.rect.max.y <= 300.0);
+        assert!(
+            find.rect.width() >= 4.0 && find.rect.width() <= 20.0,
+            "unexpected glyph width: {:?}",
+            find.rect
+        );
+        assert!(
+            find.rect.height() >= 8.0 && find.rect.height() <= 20.0,
+            "unexpected glyph height: {:?}",
+            find.rect
+        );
+    }
+
+    #[test]
+    fn tj_word_gaps_emit_space_glyphs() {
+        let content = b"BT /F1 12 Tf 20 260 Td [(Hello) -400 (world)] TJ ET\n";
+        let bodies = [
+            b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>".to_vec(),
+            stream(content),
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".to_vec(),
+        ];
+        let mut bytes = b"%PDF-1.4\n".to_vec();
+        let mut offsets = vec![0usize];
+        for (index, body) in bodies.iter().enumerate() {
+            offsets.push(bytes.len());
+            bytes.extend_from_slice(format!("{} 0 obj\n", index + 1).as_bytes());
+            bytes.extend_from_slice(body);
+            bytes.extend_from_slice(b"\nendobj\n");
+        }
+        let xref = bytes.len();
+        bytes.extend_from_slice(format!("xref\n0 {}\n", offsets.len()).as_bytes());
+        bytes.extend_from_slice(b"0000000000 65535 f \n");
+        for offset in offsets.iter().skip(1) {
+            bytes.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        bytes.extend_from_slice(
+            format!(
+                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+                offsets.len()
+            )
+            .as_bytes(),
+        );
+        let pdf = Pdf::new(bytes).unwrap();
+        let text = extract_text(pdf.pages());
+        let joined: String = text[0].iter().map(|g| g.text.as_str()).collect();
+        assert_eq!(joined, "Hello world");
     }
 
     #[test]

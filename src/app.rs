@@ -8051,10 +8051,16 @@ impl App {
                 }
             }
             Action::PdfFind => {
-                if self.pdf_preview.is_some() {
+                if let Some(preview) = &mut self.pdf_preview {
+                    preview.open_search();
                     ctx.memory_mut(|memory| {
                         memory.request_focus(crate::pdf_preview::PreviewState::search_id())
                     });
+                }
+            }
+            Action::ClosePdfSearch => {
+                if let Some(preview) = &mut self.pdf_preview {
+                    preview.close_search();
                 }
             }
             Action::PdfMatch(step) => {
@@ -18558,6 +18564,11 @@ mod tests {
         app.open_chat = Some("test-chat".into());
         app.apply(Action::PreviewPdf(file.path().to_owned()), &ctx);
         app.apply(Action::PdfFind, &ctx);
+        assert!(
+            app.pdf_preview
+                .as_ref()
+                .is_some_and(crate::pdf_preview::PreviewState::search_open)
+        );
         assert!(
             ctx.memory(|memory| memory.has_focus(crate::pdf_preview::PreviewState::search_id()))
         );

@@ -96,8 +96,21 @@ fn header(
                         .unwrap_or_else(|| {
                             crate::i18n::gettext(locale, "PDF document").into_owned()
                         });
+                    let search_t = ui.ctx().animate_bool_with_time(
+                        egui::Id::new("pdf-search-bar"),
+                        preview.search_open(),
+                        0.16,
+                    );
+                    const SEARCH_BAR_WIDTH: f32 = 320.0;
+                    let reserved = 290.0
+                        + if search_t > 0.0 {
+                            (SEARCH_BAR_WIDTH + 8.0) * search_t
+                        } else {
+                            0.0
+                        }
+                        + if preview.has_selection() { 68.0 } else { 0.0 };
                     ui.allocate_ui_with_layout(
-                        vec2((ui.available_width() - 520.0).max(0.0), 36.0),
+                        vec2((ui.available_width() - reserved).max(0.0), 36.0),
                         Layout::left_to_right(Align::Center),
                         |ui| theme::text(ui, name, theme::medium(14.0), palette.text),
                     );
@@ -183,6 +196,97 @@ fn header(
                             actions.push(Action::PdfPage(-1));
                         }
                         ui.add_space(12.0);
+                        let search_tip = format!(
+                            "{} ({})",
+                            crate::i18n::gettext(locale, "Find in PDF"),
+                            super::keys::label("Ctrl+F")
+                        );
+                        if theme::icon_button(
+                            ui,
+                            Icon::Search,
+                            18.0,
+                            if preview.search_open() {
+                                palette.accent
+                            } else {
+                                palette.secondary
+                            },
+                            palette.text,
+                            &search_tip,
+                        )
+                        .clicked()
+                        {
+                            actions.push(if preview.search_open() {
+                                Action::ClosePdfSearch
+                            } else {
+                                Action::PdfFind
+                            });
+                        }
+                        if search_t > 0.0 {
+                            let animated_width = (SEARCH_BAR_WIDTH * search_t).round();
+                            ui.allocate_ui_with_layout(
+                                vec2(animated_width, 32.0),
+                                Layout::right_to_left(Align::Center),
+                                |ui| {
+                                    ui.set_clip_rect(ui.clip_rect().intersect(ui.max_rect()));
+                                    if theme::icon_button(
+                                        ui,
+                                        Icon::X,
+                                        14.0,
+                                        palette.secondary,
+                                        palette.text,
+                                        crate::i18n::gettext(locale, "Close search").as_ref(),
+                                    )
+                                    .clicked()
+                                    {
+                                        actions.push(Action::ClosePdfSearch);
+                                    }
+                                    if theme::icon_button(
+                                        ui,
+                                        Icon::ChevronRight,
+                                        18.0,
+                                        palette.secondary,
+                                        palette.text,
+                                        crate::i18n::gettext(locale, "Next match").as_ref(),
+                                    )
+                                    .clicked()
+                                    {
+                                        actions.push(Action::PdfMatch(1));
+                                    }
+                                    if theme::icon_button(
+                                        ui,
+                                        Icon::ChevronLeft,
+                                        18.0,
+                                        palette.secondary,
+                                        palette.text,
+                                        crate::i18n::gettext(locale, "Previous match").as_ref(),
+                                    )
+                                    .clicked()
+                                    {
+                                        actions.push(Action::PdfMatch(-1));
+                                    }
+                                    theme::text(
+                                        ui,
+                                        format!(
+                                            "{} / {}",
+                                            preview.active_match(),
+                                            preview.match_count()
+                                        ),
+                                        theme::regular(13.0),
+                                        palette.secondary,
+                                    );
+                                    let mut query = preview.query().to_owned();
+                                    let search = egui::TextEdit::singleline(&mut query)
+                                        .id(PreviewState::search_id())
+                                        .hint_text(crate::i18n::gettext(locale, "Find in PDF"))
+                                        .desired_width(150.0)
+                                        .show(ui)
+                                        .response;
+                                    if search.changed() {
+                                        preview.set_query(query);
+                                    }
+                                },
+                            );
+                        }
                         if preview.has_selection()
                             && theme::soft_button(
                                 ui,
@@ -194,46 +298,6 @@ fn header(
                             .clicked()
                         {
                             actions.push(Action::PdfCopySelection);
-                        }
-                        if theme::icon_button(
-                            ui,
-                            Icon::ChevronRight,
-                            18.0,
-                            palette.secondary,
-                            palette.text,
-                            crate::i18n::gettext(locale, "Next match").as_ref(),
-                        )
-                        .clicked()
-                        {
-                            actions.push(Action::PdfMatch(1));
-                        }
-                        if theme::icon_button(
-                            ui,
-                            Icon::ChevronLeft,
-                            18.0,
-                            palette.secondary,
-                            palette.text,
-                            crate::i18n::gettext(locale, "Previous match").as_ref(),
-                        )
-                        .clicked()
-                        {
-                            actions.push(Action::PdfMatch(-1));
-                        }
-                        theme::text(
-                            ui,
-                            format!("{} / {}", preview.active_match(), preview.match_count()),
-                            theme::regular(13.0),
-                            palette.secondary,
-                        );
-                        let mut query = preview.query().to_owned();
-                        let search = egui::TextEdit::singleline(&mut query)
-                            .id(PreviewState::search_id())
-                            .hint_text(crate::i18n::gettext(locale, "Find in PDF"))
-                            .desired_width(150.0)
-                            .show(ui)
-                            .response;
-                        if search.changed() {
-                            preview.set_query(query);
                         }
                     });
                 },
@@ -298,19 +362,34 @@ fn page(
         .id_salt(("pdf-document", preview.path()))
         .auto_shrink(false);
     if let Some(page) = preview.take_jump() {
-        scroll = scroll.scroll_offset(vec2((width - view.width()) / 2.0, pages[page].top()));
+        let mut y = pages[page].top();
+        let doc_size = preview.page_dimensions(page);
+        if doc_size.x > 0.0
+            && doc_size.y > 0.0
+            && let Some(found) = preview.active_match_rect(page)
+        {
+            let matched = document_rect(found, pages[page], doc_size);
+            let max_y = (pages[page].bottom() - view.height()).max(pages[page].top());
+            y = (matched.center().y - view.height() * 0.35).clamp(pages[page].top(), max_y);
+        }
+        scroll = scroll.scroll_offset(vec2((width - view.width()) / 2.0, y));
     }
     ui.scope_builder(UiBuilder::new().max_rect(view), |ui| {
         let output = scroll.show_viewport(ui, |ui, viewport| {
             let (content_rect, content) =
-                ui.allocate_exact_size(vec2(width, height), Sense::drag());
+                ui.allocate_exact_size(vec2(width, height), Sense::click_and_drag());
             let mut geometry = Vec::new();
             for index in visible_pages(&pages, viewport.top(), viewport.height()) {
                 let page = pages[index];
                 let image = page.translate(
                     content_rect.min.to_vec2() + vec2((width - page.width()) / 2.0, 0.0),
                 );
-                let size = vec2(page.width(), page.height());
+                let doc_size = preview.page_dimensions(index);
+                let size = if doc_size.x > 0.0 && doc_size.y > 0.0 {
+                    doc_size
+                } else {
+                    vec2(page.width(), page.height())
+                };
                 geometry.push(PageGeometry {
                     page: index,
                     rect: image,
@@ -331,21 +410,32 @@ fn page(
                     );
                 }
                 for (found, active) in preview.match_rects(index) {
+                    let screen = document_rect(found, image, size);
                     painter.rect_filled(
-                        document_rect(found, image, size),
+                        screen,
                         2.0,
-                        alpha(palette.accent, if active { 112 } else { 56 }),
+                        if active {
+                            egui::Color32::from_rgba_unmultiplied(0xff, 0x98, 0x00, 145)
+                        } else {
+                            egui::Color32::from_rgba_unmultiplied(0xff, 0xd5, 0x4f, 115)
+                        },
                     );
+                    if active {
+                        painter.rect_stroke(
+                            screen,
+                            2.0,
+                            egui::Stroke::new(1.5, egui::Color32::from_rgb(0xe6, 0x51, 0x00)),
+                            egui::StrokeKind::Outside,
+                        );
+                    }
                 }
+                let selection_fill = if palette.dark {
+                    egui::Color32::from_rgba_unmultiplied(0x3b, 0x82, 0xf6, 86)
+                } else {
+                    alpha(palette.accent, 86)
+                };
                 for found in preview.selection_rects(index) {
-                    let found = document_rect(found, image, size);
-                    painter.rect_filled(found, 2.0, alpha(palette.accent, 80));
-                    painter.rect_stroke(
-                        found,
-                        2.0,
-                        egui::Stroke::new(1.0, palette.accent),
-                        egui::StrokeKind::Inside,
-                    );
+                    painter.rect_filled(document_rect(found, image, size), 1.0, selection_fill);
                 }
                 painter.rect_stroke(
                     image,
@@ -354,14 +444,27 @@ fn page(
                     egui::StrokeKind::Inside,
                 );
             }
-            if content.drag_started()
-                && let Some(pointer) = content.interact_pointer_pos()
-            {
-                preview.select(pointer, &geometry, false);
+            if content.drag_started() {
+                if let Some(origin) = ui.input(|input| input.pointer.press_origin()) {
+                    preview.select(origin, &geometry, false);
+                    if let Some(pointer) = content.interact_pointer_pos() {
+                        preview.select(pointer, &geometry, true);
+                    }
+                } else if let Some(pointer) = content.interact_pointer_pos() {
+                    preview.select(pointer, &geometry, false);
+                }
             } else if content.dragged()
                 && let Some(pointer) = content.interact_pointer_pos()
             {
                 preview.select(pointer, &geometry, true);
+            } else if content.clicked() {
+                preview.clear_selection();
+            }
+            if content.hovered()
+                && let Some(pointer) = ui.ctx().pointer_latest_pos()
+                && preview.hits_text(pointer, &geometry)
+            {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
             }
         });
         let top = output.state.offset.y;
