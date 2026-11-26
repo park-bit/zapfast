@@ -1852,7 +1852,7 @@ mod tests {
             );
         }
         for _ in 0..20 {
-            if tour.labels.contains_key("Follow system") {
+            if tour.labels.contains_key("Follow system") && tour.labels.contains_key("Light") {
                 break;
             }
             frame(
@@ -1871,7 +1871,7 @@ mod tests {
             );
         }
         for _ in 0..20 {
-            if tour.labels.contains_key("Nord") {
+            if tour.labels.contains_key("Nord") && tour.labels.contains_key("Ristretto") {
                 break;
             }
             frame(
@@ -1897,7 +1897,7 @@ mod tests {
         );
         click(&mut app, &mut tour, &ctx, "Nord");
         for _ in 0..20 {
-            if tour.labels.contains_key("Follow system") {
+            if tour.labels.contains_key("Follow system") && tour.labels.contains_key("Light") {
                 break;
             }
             frame(
