@@ -1,6 +1,6 @@
 //! Full-window native PDF reader for downloaded chat documents.
 
-use egui::{Align, Frame, Layout, Margin, Rect, Sense, UiBuilder, Vec2, vec2};
+use egui::{Align, Frame, Layout, Margin, Rect, Sense, UiBuilder, vec2};
 
 use crate::app::App;
 use crate::model::Action;
