@@ -120,8 +120,9 @@ name or description, in the interface language or in English.
 
 **Appearance**
 
-- **Theme**: dark, light, follow the system, Messages, Aurora Glass, or a local JSON
-  palette from the themes folder. See [Making a theme]({{ '/themes/' | relative_url }}).
+- **Theme**: dark, light, follow the system, Messages, Aurora Glass, Aurora Glass
+  Green, Aurora Glass Default Alternative, or a local JSON palette from the
+  themes folder. See [Making a theme]({{ '/themes/' | relative_url }}).
   **Messages** follows the system's light or dark appearance in macOS's
   greys, with bubbles shaped, spaced and coloured as Messages on the Mac
   draws them (yours in iMessage blue, shading deeper down the window), the
@@ -135,11 +136,14 @@ name or description, in the interface language or in English.
   window where needed, while keeping the current chat and connection.
   **Aurora Glass** is a separate appearance with pearl surfaces in light mode,
   ink-blue surfaces in dark mode, lavender accents, and soft lavender, teal and
-  rose lighting behind frosted panes. It follows the system appearance and
-  reuses the same native materials and opaque fallback as Messages. Rounded
-  message bubbles stay opaque and readable. Your chosen wallpaper image still
-  takes precedence. The lighting is static, adds no network access, and needs
-  no new setting beyond choosing the theme.
+  rose lighting behind frosted panes. **Aurora Glass Green** uses mint and
+  forest lighting, and **Aurora Glass Default Alternative** uses cool cyan and
+  periwinkle. All three follow the system appearance and reuse the same native
+  materials and opaque fallback as Messages. Adjacent panes join without a
+  divider and the chat list carries more of the ambient colour, so the window
+  reads as one sheet of glass. Rounded message bubbles stay opaque and readable.
+  Your chosen wallpaper image still takes precedence. The lighting is static,
+  adds no network access, and needs no new setting beyond choosing the theme.
 - **Wallpaper**: WhatsApp's light and dark chat wallpaper colours, with or
   without doodles.
 - **Zoom**: interface scale, also `Ctrl+Plus`, `Ctrl+Minus` and `Ctrl+0`.

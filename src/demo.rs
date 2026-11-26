@@ -2144,6 +2144,31 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                 preview.zoom_by(0.75);
                 app.pdf_preview = Some(preview);
             }
+            "pdf-find" => {
+                if let Some(preview) = app.pdf_preview.as_mut() {
+                    preview.set_text(crate::pdf::demo_text());
+                    preview.set_query("find".into());
+                    preview.step_match(1);
+                }
+            }
+            "pdf-selection" => {
+                if let Some(preview) = app.pdf_preview.as_mut() {
+                    let text = crate::pdf::demo_text();
+                    let first = text[0][0].rect.center();
+                    let last = text[0][6].rect.center();
+                    let geometry = [crate::pdf_preview::PageGeometry {
+                        page: 0,
+                        rect: egui::Rect::from_min_size(
+                            egui::pos2(0.0, 0.0),
+                            egui::vec2(200.0, 300.0),
+                        ),
+                        size: egui::vec2(200.0, 300.0),
+                    }];
+                    preview.set_text(text);
+                    preview.select(first, &geometry, false);
+                    preview.select(last, &geometry, true);
+                }
+            }
             "media-album" => media_album_sample(app, true),
             "media-album-replies" => {
                 app.settings.theme = ThemeChoice::Dark;
@@ -3342,6 +3367,12 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             "aurora" => {
                 app.settings.theme = ThemeChoice::Aurora;
             }
+            "aurora-green" => {
+                app.settings.theme = ThemeChoice::AuroraGreen;
+            }
+            "aurora-alternative" => {
+                app.settings.theme = ThemeChoice::AuroraAlternative;
+            }
             // Force either appearance for synthetic previews on every desktop.
             "aurora-dark" | "aurora-light" => {
                 let filename = format!("{part}.json");
@@ -3349,6 +3380,24 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                 app.settings.custom_theme_cache = Some(crate::theme::CustomTheme {
                     filename,
                     palette: crate::theme::Palette::aurora(part == "aurora-dark"),
+                });
+            }
+            "aurora-green-dark" | "aurora-green-light" => {
+                let filename = format!("{part}.json");
+                app.settings.custom_theme = Some(filename.clone());
+                app.settings.custom_theme_cache = Some(crate::theme::CustomTheme {
+                    filename,
+                    palette: crate::theme::Palette::aurora_green(part == "aurora-green-dark"),
+                });
+            }
+            "aurora-alternative-dark" | "aurora-alternative-light" => {
+                let filename = format!("{part}.json");
+                app.settings.custom_theme = Some(filename.clone());
+                app.settings.custom_theme_cache = Some(crate::theme::CustomTheme {
+                    filename,
+                    palette: crate::theme::Palette::aurora_alternative(
+                        part == "aurora-alternative-dark",
+                    ),
                 });
             }
             // Messages follows the system; this shows its light side anywhere.
@@ -9727,8 +9776,16 @@ mod tests {
             "settings",
             "aurora-dark",
             "aurora-light",
+            "aurora-green-dark",
+            "aurora-green-light",
+            "aurora-alternative-dark",
+            "aurora-alternative-light",
             "settings,aurora-dark",
             "settings,aurora-light",
+            "settings,aurora-green-dark",
+            "settings,aurora-green-light",
+            "settings,aurora-alternative-dark",
+            "settings,aurora-alternative-light",
             "wallpaper-image,aurora-dark",
             "wallpaper-image,aurora-light",
             "settings-search=Notifications",
@@ -9867,6 +9924,8 @@ mod tests {
             "recording",
             "preview",
             "pdf-preview",
+            "pdf-preview,pdf-find",
+            "pdf-preview,pdf-selection",
             "gifs",
             "gifs-badkey",
             "react-menu",
@@ -10049,11 +10108,21 @@ mod tests {
             ("chat-search", wide),
             ("empty", wide),
             ("pdf-preview", wide),
+            ("pdf-preview,pdf-find", wide),
+            ("pdf-preview,pdf-selection", wide),
             ("chat", narrow),
             ("aurora-dark", wide),
             ("aurora-light", wide),
+            ("aurora-green-dark", wide),
+            ("aurora-green-light", wide),
+            ("aurora-alternative-dark", wide),
+            ("aurora-alternative-light", wide),
             ("aurora-dark", narrow),
             ("aurora-light", narrow),
+            ("aurora-green-dark", narrow),
+            ("aurora-green-light", narrow),
+            ("aurora-alternative-dark", narrow),
+            ("aurora-alternative-light", narrow),
             ("info", narrow),
             ("empty", narrow),
             ("chat", egui::vec2(700.0, 600.0)),

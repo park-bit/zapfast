@@ -2962,6 +2962,12 @@ pub enum Action {
     ZoomPdfBy(f32),
     /// Fits the current PDF page to the viewer.
     FitPdf,
+    /// Focuses the PDF viewer's text search field.
+    PdfFind,
+    /// Moves to the next or previous text match, wrapping around.
+    PdfMatch(i8),
+    /// Copies the selected PDF text, if any.
+    PdfCopySelection,
     /// Closes the PDF viewer.
     ClosePdfPreview,
     /// Shows a downloaded sticker large, with a favorite toggle.

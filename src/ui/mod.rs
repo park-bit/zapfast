@@ -890,16 +890,18 @@ fn title_strip(app: &App, ui: &mut egui::Ui) {
         .show(ui, |ui| {
             let rect = ui.max_rect();
             titlebar_drag(ui, rect);
-            let ppp = ui.ctx().pixels_per_point();
-            let left = ((rect.left() + rail::WIDTH - 1.0) * ppp).round() / ppp;
-            ui.painter().rect_filled(
-                egui::Rect::from_min_max(
-                    egui::pos2(left, rect.bottom() - 1.0),
-                    egui::pos2(rect.right(), rect.bottom()),
-                ),
-                0.0,
-                palette.outline,
-            );
+            if !palette.ambient {
+                let ppp = ui.ctx().pixels_per_point();
+                let left = ((rect.left() + rail::WIDTH - 1.0) * ppp).round() / ppp;
+                ui.painter().rect_filled(
+                    egui::Rect::from_min_max(
+                        egui::pos2(left, rect.bottom() - 1.0),
+                        egui::pos2(rect.right(), rect.bottom()),
+                    ),
+                    0.0,
+                    palette.outline,
+                );
+            }
         });
 }
 

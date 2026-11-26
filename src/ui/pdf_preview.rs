@@ -4,7 +4,7 @@ use egui::{Align, Frame, Layout, Margin, Rect, Sense, UiBuilder, vec2};
 
 use crate::app::App;
 use crate::model::Action;
-use crate::pdf_preview::{PreviewState, Status};
+use crate::pdf_preview::{PageGeometry, PreviewState, Status};
 use crate::theme::{self, Icon};
 
 const HEADER: f32 = 56.0;
@@ -54,7 +54,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 
 fn header(
     ui: &mut egui::Ui,
-    preview: &PreviewState,
+    preview: &mut PreviewState,
     palette: &theme::Palette,
     locale: crate::i18n::Locale,
     actions: &mut Vec<Action>,
@@ -97,7 +97,7 @@ fn header(
                             crate::i18n::gettext(locale, "PDF document").into_owned()
                         });
                     ui.allocate_ui_with_layout(
-                        vec2((ui.available_width() - 330.0).max(0.0), 36.0),
+                        vec2((ui.available_width() - 520.0).max(0.0), 36.0),
                         Layout::left_to_right(Align::Center),
                         |ui| theme::text(ui, name, theme::medium(14.0), palette.text),
                     );
@@ -182,6 +182,59 @@ fn header(
                         {
                             actions.push(Action::PdfPage(-1));
                         }
+                        ui.add_space(12.0);
+                        if preview.has_selection()
+                            && theme::soft_button(
+                                ui,
+                                palette,
+                                None,
+                                crate::i18n::gettext(locale, "Copy").as_ref(),
+                                false,
+                            )
+                            .clicked()
+                        {
+                            actions.push(Action::PdfCopySelection);
+                        }
+                        if theme::icon_button(
+                            ui,
+                            Icon::ChevronRight,
+                            18.0,
+                            palette.secondary,
+                            palette.text,
+                            crate::i18n::gettext(locale, "Next match").as_ref(),
+                        )
+                        .clicked()
+                        {
+                            actions.push(Action::PdfMatch(1));
+                        }
+                        if theme::icon_button(
+                            ui,
+                            Icon::ChevronLeft,
+                            18.0,
+                            palette.secondary,
+                            palette.text,
+                            crate::i18n::gettext(locale, "Previous match").as_ref(),
+                        )
+                        .clicked()
+                        {
+                            actions.push(Action::PdfMatch(-1));
+                        }
+                        theme::text(
+                            ui,
+                            format!("{} / {}", preview.active_match(), preview.match_count()),
+                            theme::regular(13.0),
+                            palette.secondary,
+                        );
+                        let mut query = preview.query().to_owned();
+                        let search = egui::TextEdit::singleline(&mut query)
+                            .id(PreviewState::search_id())
+                            .hint_text(crate::i18n::gettext(locale, "Find in PDF"))
+                            .desired_width(150.0)
+                            .show(ui)
+                            .response;
+                        if search.changed() {
+                            preview.set_query(query);
+                        }
                     });
                 },
             );
@@ -249,11 +302,18 @@ fn page(
     }
     ui.scope_builder(UiBuilder::new().max_rect(view), |ui| {
         let output = scroll.show_viewport(ui, |ui, viewport| {
-            let (content, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
+            let (content, _) = ui.allocate_exact_size(vec2(width, height), Sense::drag());
+            let mut geometry = Vec::new();
             for index in visible_pages(&pages, viewport.top(), viewport.height()) {
                 let page = pages[index];
                 let image =
                     page.translate(content.min.to_vec2() + vec2((width - page.width()) / 2.0, 0.0));
+                let size = vec2(page.width(), page.height());
+                geometry.push(PageGeometry {
+                    page: index,
+                    rect: image,
+                    size,
+                });
                 let painter = ui.painter().with_clip_rect(image);
                 painter.rect_filled(image, 0.0, egui::Color32::WHITE);
                 if let Some(texture) = preview.texture(index) {
@@ -268,12 +328,38 @@ fn page(
                         egui::Color32::DARK_GRAY,
                     );
                 }
+                for (found, active) in preview.match_rects(index) {
+                    painter.rect_filled(
+                        document_rect(found, image, size),
+                        2.0,
+                        alpha(palette.accent, if active { 112 } else { 56 }),
+                    );
+                }
+                for found in preview.selection_rects(index) {
+                    let found = document_rect(found, image, size);
+                    painter.rect_filled(found, 2.0, alpha(palette.accent, 80));
+                    painter.rect_stroke(
+                        found,
+                        2.0,
+                        egui::Stroke::new(1.0, palette.accent),
+                        egui::StrokeKind::Inside,
+                    );
+                }
                 painter.rect_stroke(
                     image,
                     0.0,
                     egui::Stroke::new(1.0, palette.outline),
                     egui::StrokeKind::Inside,
                 );
+            }
+            if content.drag_started()
+                && let Some(pointer) = content.interact_pointer_pos()
+            {
+                preview.select(pointer, &geometry, false);
+            } else if content.dragged()
+                && let Some(pointer) = content.interact_pointer_pos()
+            {
+                preview.select(pointer, &geometry, true);
             }
         });
         let top = output.state.offset.y;
@@ -294,6 +380,25 @@ fn visible_pages(pages: &[Rect], top: f32, height: f32) -> std::ops::Range<usize
         ..pages.partition_point(|page| page.top() < top + height)
 }
 
+fn document_rect(document: Rect, image: Rect, size: egui::Vec2) -> Rect {
+    let scale = image.size() / size;
+    Rect::from_min_max(
+        egui::pos2(
+            image.min.x + document.min.x * scale.x,
+            image.min.y + document.min.y * scale.y,
+        ),
+        egui::pos2(
+            image.min.x + document.max.x * scale.x,
+            image.min.y + document.max.y * scale.y,
+        ),
+    )
+}
+
+fn alpha(color: egui::Color32, opacity: u8) -> egui::Color32 {
+    let [red, green, blue, _] = color.to_array();
+    egui::Color32::from_rgba_unmultiplied(red, green, blue, opacity)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -310,5 +415,15 @@ mod tests {
         assert_eq!(visible_pages(&pages, 300.0, 16.0), 1..1);
         assert_eq!(visible_pages(&pages, 316.0, 200.0), 1..2);
         assert_eq!(visible_pages(&pages, 532.0, 600.0), 2..3);
+    }
+
+    #[test]
+    fn document_rect_follows_the_painted_page() {
+        let image = Rect::from_min_size(egui::pos2(50.0, 70.0), vec2(400.0, 600.0));
+        let document = Rect::from_min_size(egui::pos2(5.0, 10.0), vec2(2.0, 3.0));
+        assert_eq!(
+            document_rect(document, image, vec2(200.0, 300.0)),
+            Rect::from_min_size(egui::pos2(60.0, 90.0), vec2(4.0, 6.0))
+        );
     }
 }

@@ -35,6 +35,24 @@ pub fn ambient(ui: &egui::Ui, palette: &crate::theme::Palette) {
     } else {
         palette.window
     };
+    use crate::theme::AuroraVariant;
+    let glows: [(egui::Color32, (f32, f32), f32); 3] = match palette.aurora_variant {
+        AuroraVariant::Default => [
+            (palette.accent, (0.12, 0.05), 0.42),
+            (egui::Color32::from_rgb(83, 179, 186), (0.9, 0.4), 0.32),
+            (egui::Color32::from_rgb(167, 118, 178), (0.4, 1.0), 0.22),
+        ],
+        AuroraVariant::Green => [
+            (palette.accent, (0.08, 0.04), 0.46),
+            (egui::Color32::from_rgb(84, 212, 154), (0.92, 0.38), 0.34),
+            (egui::Color32::from_rgb(184, 233, 134), (0.42, 1.0), 0.2),
+        ],
+        AuroraVariant::Alternative => [
+            (palette.accent, (0.16, 0.06), 0.42),
+            (egui::Color32::from_rgb(91, 200, 232), (0.88, 0.46), 0.34),
+            (egui::Color32::from_rgb(140, 155, 232), (0.35, 0.96), 0.24),
+        ],
+    };
     const STEPS: u32 = 16;
     let mut mesh = egui::Mesh::default();
     for y in 0..=STEPS {
@@ -44,10 +62,10 @@ pub fn ambient(ui: &egui::Ui, palette: &crate::theme::Palette) {
             let glow = |cx: f32, cy: f32, strength: f32| {
                 (-6.0 * ((across - cx).powi(2) + (down - cy).powi(2))).exp() * strength
             };
-            let color = base
-                .lerp_to_gamma(palette.accent, glow(0.12, 0.05, 0.34))
-                .lerp_to_gamma(egui::Color32::from_rgb(83, 179, 186), glow(0.9, 0.4, 0.24))
-                .lerp_to_gamma(egui::Color32::from_rgb(167, 118, 178), glow(0.4, 1.0, 0.16));
+            let mut color = base;
+            for (glow_color, (cx, cy), strength) in glows {
+                color = color.lerp_to_gamma(glow_color, glow(cx, cy, strength));
+            }
             mesh.colored_vertex(
                 rect.min + egui::vec2(across * rect.width(), down * rect.height()),
                 color,
@@ -366,6 +384,10 @@ mod context_tests {
             crate::theme::Palette::light(),
             crate::theme::Palette::aurora(true),
             crate::theme::Palette::aurora(false),
+            crate::theme::Palette::aurora_green(true),
+            crate::theme::Palette::aurora_green(false),
+            crate::theme::Palette::aurora_alternative(true),
+            crate::theme::Palette::aurora_alternative(false),
         ] {
             let ctx = egui::Context::default();
             let mut output = ctx.run_ui(egui::RawInput::default(), |ui| ambient(ui, &palette));

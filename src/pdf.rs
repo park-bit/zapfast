@@ -6,8 +6,14 @@ use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, sync_channel};
 use std::thread;
 
 use egui::ColorImage;
-use hayro::hayro_interpret::InterpreterSettings;
+use hayro::hayro_interpret::font::GlyphRun;
+use hayro::hayro_interpret::hayro_cmap::BfString;
+use hayro::hayro_interpret::{
+    BlendMode, ClipPath, Context, DrawMode, DrawProps, Image, ImageDrawProps, InterpreterCache,
+    InterpreterSettings, SoftMask, TransformExt, interpret_page,
+};
 use hayro::hayro_syntax::Pdf;
+use hayro::kurbo::{Point, Rect as KurboRect};
 use hayro::vello_cpu::color::palette::css::WHITE;
 use hayro::{PixmapSettings, RenderCache, RenderSettings, render};
 
@@ -19,10 +25,23 @@ pub const MAX_RENDER_PIXELS: f32 = 8_000_000.0;
 
 const MAX_RENDER_SCALE: f32 = 4.0;
 const MAX_PAGE_POINTS: f32 = 100_000.0;
+const MAX_GLYPHS_PER_PAGE: usize = 4_000;
+const MAX_GLYPHS_TOTAL: usize = 20_000;
+
+/// One positioned Unicode run from a PDF, in render-space document points.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextGlyph {
+    pub page: usize,
+    pub order: usize,
+    pub text: String,
+    pub origin: (f32, f32),
+    pub rect: egui::Rect,
+}
 
 #[derive(Debug)]
 pub enum Event {
     Ready(Vec<(f32, f32)>),
+    Text(Vec<Vec<TextGlyph>>),
     Rendered {
         request: u64,
         page: usize,
@@ -126,6 +145,13 @@ fn run(
         return;
     }
     if events.send(Event::Ready(dimensions)).is_err() {
+        return;
+    }
+    ctx.request_repaint();
+
+    let text = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| extract_text(&pages)))
+        .unwrap_or_default();
+    if events.send(Event::Text(text)).is_err() {
         return;
     }
     ctx.request_repaint();
@@ -263,17 +289,121 @@ fn render_page<'a>(
     ))
 }
 
+/// Extracts Unicode runs in the same document coordinates the page is drawn
+/// in. Text that cannot be mapped is skipped: a search must not claim a match
+/// on a glyph it cannot name.
+fn extract_text(pages: &[hayro::hayro_syntax::page::Page<'_>]) -> Vec<Vec<TextGlyph>> {
+    let mut remaining = MAX_GLYPHS_TOTAL;
+    pages
+        .iter()
+        .enumerate()
+        .map(|(page, page_ref)| {
+            if remaining == 0 {
+                return Vec::new();
+            }
+            let (width, height) = page_ref.render_dimensions();
+            if !valid_dimensions(width, height) {
+                return Vec::new();
+            }
+            let cache = InterpreterCache::new();
+            let mut context = Context::new(
+                page_ref.initial_transform(true).to_kurbo(),
+                KurboRect::new(0.0, 0.0, f64::from(width), f64::from(height)),
+                &cache,
+                page_ref.xref(),
+                InterpreterSettings::default(),
+            );
+            let mut extractor = TextExtractor {
+                page,
+                order: 0,
+                glyphs: Vec::new(),
+                limit: remaining.min(MAX_GLYPHS_PER_PAGE),
+            };
+            interpret_page(page_ref, &mut context, &mut extractor);
+            remaining -= extractor.glyphs.len();
+            extractor.glyphs
+        })
+        .collect()
+}
+
+struct TextExtractor {
+    page: usize,
+    order: usize,
+    glyphs: Vec<TextGlyph>,
+    limit: usize,
+}
+
+impl hayro::hayro_interpret::Device<'_> for TextExtractor {
+    fn draw_path(&mut self, _: &hayro::kurbo::BezPath, _: DrawProps<'_>, _: &DrawMode) {}
+
+    fn push_clip_path(&mut self, _: &ClipPath) {}
+
+    fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'_>>, _: BlendMode) {}
+
+    fn draw_glyph_run(&mut self, glyph_run: &GlyphRun<'_, '_>, props: DrawProps<'_>, _: &DrawMode) {
+        if self.glyphs.len() >= self.limit {
+            return;
+        }
+        let glyphs = glyph_run.glyphs();
+        for (index, glyph) in glyphs.iter().enumerate() {
+            let text = match glyph.as_unicode() {
+                Some(BfString::Char(c)) => c.to_string(),
+                Some(BfString::String(text)) => text,
+                None => continue,
+            };
+            let transform = props.transform * glyph.transform();
+            let origin = transform * Point::ZERO;
+            let [a, b, c, d, _, _] = transform.as_coeffs();
+            let height = c.hypot(d).max(a.hypot(b) * 0.25) as f32;
+            if !height.is_finite() || height <= 0.0 {
+                continue;
+            }
+            // shortcut: rotated text gets an axis-aligned box from its
+            // baseline, enough for selection in ordinary PDF attachments.
+            let advance = glyphs
+                .get(index + 1)
+                .map(|next| ((props.transform * next.transform() * Point::ZERO) - origin).hypot())
+                .filter(|width| *width > 0.0 && *width < f64::from(height) * 4.0)
+                .unwrap_or(f64::from(height) * 0.6 * text.chars().count().max(1) as f64)
+                as f32;
+            let top = (origin.y - f64::from(height) * 0.82) as f32;
+            let rect = egui::Rect::from_min_size(
+                egui::pos2(origin.x as f32, top),
+                egui::vec2(advance, height),
+            );
+            self.glyphs.push(TextGlyph {
+                page: self.page,
+                order: self.order,
+                text,
+                origin: (origin.x as f32, origin.y as f32),
+                rect,
+            });
+            self.order += 1;
+            if self.glyphs.len() >= self.limit {
+                return;
+            }
+        }
+    }
+
+    fn pop_clip(&mut self) {}
+
+    fn pop_transparency_group(&mut self) {}
+
+    fn draw_image(&mut self, _: Image<'_, '_>, _: ImageDrawProps<'_>) {}
+}
+
 #[cfg(any(test, feature = "demo"))]
 pub fn demo_pdf() -> Vec<u8> {
-    let first = b"0.16 0.25 0.45 rg 20 270 160 12 re f\n0.72 0.75 0.80 rg 20 250 120 4 re f\n0.82 0.84 0.87 rg 20 235 156 3 re f\n0.82 0.84 0.87 rg 20 224 148 3 re f\n0.82 0.84 0.87 rg 20 213 155 3 re f\n0.82 0.84 0.87 rg 20 202 103 3 re f\n0.16 0.56 0.62 rg 20 105 74 68 re f\n0.88 0.25 0.28 rg 106 105 74 68 re f\n0.82 0.84 0.87 rg 20 86 160 3 re f\n0.82 0.84 0.87 rg 20 75 140 3 re f\n";
-    let second = b"0.16 0.25 0.45 rg 20 270 160 12 re f\n0.82 0.84 0.87 rg 20 248 156 4 re f\n0.82 0.84 0.87 rg 20 235 144 3 re f\n0.25 0.35 0.8 rg 20 80 160 112 re f\n0.18 0.58 0.55 rg 34 94 25 48 re f\n0.88 0.48 0.24 rg 72 94 25 78 re f\n0.5 0.38 0.72 rg 110 94 25 60 re f\n0.19 0.62 0.48 rg 148 94 20 92 re f\n";
+    let first = b"0.16 0.25 0.45 rg 20 270 160 12 re f\nBT /F1 12 Tf 0.95 0.97 1 rg 24 273 Td (Find me in the report) Tj ET\n0.72 0.75 0.80 rg 20 250 120 4 re f\n0.82 0.84 0.87 rg 20 235 156 3 re f\nBT /F1 10 Tf 0.16 0.25 0.45 rg 20 213 Td (Aurora notes) Tj ET\n0.82 0.84 0.87 rg 20 224 148 3 re f\n0.82 0.84 0.87 rg 20 213 155 3 re f\n0.82 0.84 0.87 rg 20 202 103 3 re f\n0.16 0.56 0.62 rg 20 105 74 68 re f\n0.88 0.25 0.28 rg 106 105 74 68 re f\n0.82 0.84 0.87 rg 20 86 160 3 re f\n0.82 0.84 0.87 rg 20 75 140 3 re f\n";
+    let second = b"0.16 0.25 0.45 rg 20 270 160 12 re f\nBT /F1 12 Tf 0.95 0.97 1 rg 24 273 Td (Search the second page) Tj ET\n0.82 0.84 0.87 rg 20 248 156 4 re f\n0.82 0.84 0.87 rg 20 235 144 3 re f\n0.25 0.35 0.8 rg 20 80 160 112 re f\n0.18 0.58 0.55 rg 34 94 25 48 re f\n0.88 0.48 0.24 rg 72 94 25 78 re f\n0.5 0.38 0.72 rg 110 94 25 60 re f\n0.19 0.62 0.48 rg 148 94 20 92 re f\nBT /F1 10 Tf 0.95 0.97 1 rg 34 104 Td (Caf\\351 resume) Tj ET\n";
     let bodies = [
         b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
         b"<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>".to_vec(),
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] /Contents 4 0 R >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] /Contents 4 0 R /Resources << /Font << /F1 7 0 R >> >> >>".to_vec(),
         stream(first),
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] /Contents 6 0 R >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] /Contents 6 0 R /Resources << /Font << /F1 7 0 R >> >> >>".to_vec(),
         stream(second),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".to_vec(),
     ];
     let mut bytes = b"%PDF-1.4\n".to_vec();
     let mut offsets = vec![0usize];
@@ -297,6 +427,13 @@ pub fn demo_pdf() -> Vec<u8> {
         .as_bytes(),
     );
     bytes
+}
+
+#[cfg(any(test, feature = "demo"))]
+pub fn demo_text() -> Vec<Vec<TextGlyph>> {
+    let pdf = Pdf::new(demo_pdf()).expect("the synthetic PDF parses");
+    let pages = pdf.pages();
+    extract_text(&pages)
 }
 
 #[cfg(any(test, feature = "demo"))]
@@ -342,6 +479,31 @@ mod tests {
                 .iter()
                 .any(|pixel| *pixel != egui::Color32::WHITE)
         );
+    }
+
+    #[test]
+    fn synthetic_pdf_text_is_extracted_in_document_coordinates() {
+        let pdf = Pdf::new(demo_pdf()).unwrap();
+        let pages = pdf.pages();
+        let text = extract_text(&pages);
+        assert_eq!(text.len(), 2);
+        let joined: String = text
+            .iter()
+            .flatten()
+            .map(|glyph| glyph.text.as_str())
+            .collect();
+        let lower = joined.to_lowercase();
+        assert!(lower.contains("find me in the report"), "{joined}");
+        assert!(lower.contains("search the second page"), "{joined}");
+        assert!(lower.contains("café"), "{joined}");
+        let find = text[0]
+            .iter()
+            .find(|glyph| glyph.text == "F")
+            .expect("the first glyph of Find me");
+        assert_eq!(find.page, 0);
+        assert_eq!(find.order, 0);
+        assert!(find.rect.min.x >= 0.0 && find.rect.max.x <= 200.0);
+        assert!(find.rect.min.y >= 0.0 && find.rect.max.y <= 300.0);
     }
 
     #[test]

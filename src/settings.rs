@@ -38,6 +38,10 @@ pub enum ThemeChoice {
     Messages,
     /// Frosted glass with soft ambient colour, following the system appearance.
     Aurora,
+    /// Aurora Glass lit in mint and forest green.
+    AuroraGreen,
+    /// Aurora Glass lit in cool cyan, as an alternative to the default wash.
+    AuroraAlternative,
 }
 
 impl ThemeChoice {
@@ -50,6 +54,8 @@ impl ThemeChoice {
         Self::Dark,
         Self::Messages,
         Self::Aurora,
+        Self::AuroraGreen,
+        Self::AuroraAlternative,
     ];
 
     pub fn label(self) -> &'static str {
@@ -59,6 +65,8 @@ impl ThemeChoice {
             Self::System => "Follow system",
             Self::Messages => "Messages",
             Self::Aurora => "Aurora Glass",
+            Self::AuroraGreen => "Aurora Glass Green",
+            Self::AuroraAlternative => "Aurora Glass Default Alternative",
         }
     }
 }
@@ -428,6 +436,11 @@ pub struct Settings {
     /// The same compatibility mark for Aurora Glass.
     #[serde(skip_serializing)]
     pub(crate) aurora_theme: bool,
+    /// The same compatibility marks for the two other Aurora Glass washes.
+    #[serde(skip_serializing)]
+    pub(crate) aurora_green_theme: bool,
+    #[serde(skip_serializing)]
+    pub(crate) aurora_alternative_theme: bool,
     /// The interface's typeface.
     pub font: FontChoice,
     /// Windows and Linux: draw ZapFast's own title bar and window buttons
@@ -569,6 +582,8 @@ impl Default for Settings {
             theme: ThemeChoice::System,
             messages_theme: false,
             aurora_theme: false,
+            aurora_green_theme: false,
+            aurora_alternative_theme: false,
             font: FontChoice::System,
             custom_titlebar: false,
             interface_language: None,
@@ -753,6 +768,18 @@ impl Settings {
             fields.insert("theme".into(), serde_json::to_value(ThemeChoice::System)?);
             fields.insert("aurora_theme".into(), true.into());
         }
+        if self.theme == ThemeChoice::AuroraGreen
+            && let Some(fields) = value.as_object_mut()
+        {
+            fields.insert("theme".into(), serde_json::to_value(ThemeChoice::System)?);
+            fields.insert("aurora_green_theme".into(), true.into());
+        }
+        if self.theme == ThemeChoice::AuroraAlternative
+            && let Some(fields) = value.as_object_mut()
+        {
+            fields.insert("theme".into(), serde_json::to_value(ThemeChoice::System)?);
+            fields.insert("aurora_alternative_theme".into(), true.into());
+        }
         Ok(value)
     }
 
@@ -765,6 +792,12 @@ impl Settings {
         }
         if std::mem::take(&mut self.aurora_theme) && self.theme == ThemeChoice::System {
             self.theme = ThemeChoice::Aurora;
+        }
+        if std::mem::take(&mut self.aurora_green_theme) && self.theme == ThemeChoice::System {
+            self.theme = ThemeChoice::AuroraGreen;
+        }
+        if std::mem::take(&mut self.aurora_alternative_theme) && self.theme == ThemeChoice::System {
+            self.theme = ThemeChoice::AuroraAlternative;
         }
         if self.version < 1 {
             // Old files store every field, so a default colour cannot be told
@@ -1047,6 +1080,37 @@ mod tests {
         explicit.migrate();
         assert_eq!(explicit.theme, ThemeChoice::Light);
         assert!(explicit.to_file().unwrap().get("aurora_theme").is_none());
+    }
+
+    #[test]
+    fn aurora_variants_save_compatibly_and_keep_other_preferences() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        for (theme, mark) in [
+            (ThemeChoice::AuroraGreen, "aurora_green_theme"),
+            (ThemeChoice::AuroraAlternative, "aurora_alternative_theme"),
+        ] {
+            let settings = Settings {
+                theme,
+                zoom: 1.25,
+                enter_sends: false,
+                ..Settings::default()
+            };
+            settings.save(&path).unwrap();
+            let written: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            assert_eq!(written["theme"], "system");
+            assert_eq!(written[mark], true);
+            assert!(written.get("messages_theme").is_none());
+            assert!(written.get("aurora_theme").is_none());
+            assert_eq!(Settings::load(&path), settings);
+
+            let mut explicit: Settings =
+                serde_json::from_str(&format!(r#"{{"theme":"light","{mark}":true}}"#)).unwrap();
+            explicit.migrate();
+            assert_eq!(explicit.theme, ThemeChoice::Light);
+            assert!(explicit.to_file().unwrap().get(mark).is_none());
+        }
     }
 
     #[test]

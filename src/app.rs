@@ -1598,6 +1598,8 @@ impl App {
                 ThemeChoice::Light => Palette::light(),
                 ThemeChoice::Messages => Palette::messages(),
                 ThemeChoice::Aurora => Palette::aurora(true),
+                ThemeChoice::AuroraGreen => Palette::aurora_green(true),
+                ThemeChoice::AuroraAlternative => Palette::aurora_alternative(true),
                 _ => Palette::dark(),
             });
         let locale = crate::i18n::resolve(settings.interface_language);
@@ -7328,9 +7330,11 @@ impl App {
                 ThemeChoice::Dark => egui::ThemePreference::Dark,
                 ThemeChoice::Light => egui::ThemePreference::Light,
                 // Glass themes follow the system's appearance.
-                ThemeChoice::System | ThemeChoice::Messages | ThemeChoice::Aurora => {
-                    egui::ThemePreference::System
-                }
+                ThemeChoice::System
+                | ThemeChoice::Messages
+                | ThemeChoice::Aurora
+                | ThemeChoice::AuroraGreen
+                | ThemeChoice::AuroraAlternative => egui::ThemePreference::System,
             },
             |palette| {
                 if palette.dark {
@@ -7376,6 +7380,10 @@ impl App {
         let palette = self.settings.cached_palette().unwrap_or_else(|| {
             if self.settings.theme == ThemeChoice::Aurora {
                 Palette::aurora(dark)
+            } else if self.settings.theme == ThemeChoice::AuroraGreen {
+                Palette::aurora_green(dark)
+            } else if self.settings.theme == ThemeChoice::AuroraAlternative {
+                Palette::aurora_alternative(dark)
             } else if self.settings.theme == ThemeChoice::Messages {
                 if dark {
                     Palette::messages()
@@ -8040,6 +8048,27 @@ impl App {
             Action::FitPdf => {
                 if let Some(preview) = &mut self.pdf_preview {
                     preview.fit();
+                }
+            }
+            Action::PdfFind => {
+                if self.pdf_preview.is_some() {
+                    ctx.memory_mut(|memory| {
+                        memory.request_focus(crate::pdf_preview::PreviewState::search_id())
+                    });
+                }
+            }
+            Action::PdfMatch(step) => {
+                if let Some(preview) = &mut self.pdf_preview {
+                    preview.step_match(step);
+                }
+            }
+            Action::PdfCopySelection => {
+                let selected = self
+                    .pdf_preview
+                    .as_ref()
+                    .and_then(crate::pdf_preview::PreviewState::selection_text);
+                if let Some(text) = selected {
+                    self.actions.push(Action::CopyText(text));
                 }
             }
             Action::ClosePdfPreview => {
@@ -18521,6 +18550,41 @@ mod tests {
     }
 
     #[test]
+    fn pdf_find_and_copy_stay_with_the_preview() {
+        let ctx = egui::Context::default();
+        let file = tempfile::Builder::new().suffix(".pdf").tempfile().unwrap();
+        std::fs::write(file.path(), crate::pdf::demo_pdf()).unwrap();
+        let mut app = app();
+        app.open_chat = Some("test-chat".into());
+        app.apply(Action::PreviewPdf(file.path().to_owned()), &ctx);
+        app.apply(Action::PdfFind, &ctx);
+        assert!(
+            ctx.memory(|memory| memory.has_focus(crate::pdf_preview::PreviewState::search_id()))
+        );
+
+        let text = crate::pdf::demo_text();
+        let first = text[0][0].rect.center();
+        let last = text[0][6].rect.center();
+        let geometry = [crate::pdf_preview::PageGeometry {
+            page: 0,
+            rect: egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(200.0, 300.0)),
+            size: egui::vec2(200.0, 300.0),
+        }];
+        let preview = app.pdf_preview.as_mut().expect("PDF preview opens");
+        preview.set_text(text);
+        preview.set_query("find".into());
+        assert_eq!(preview.match_count(), 1);
+        preview.select(first, &geometry, false);
+        preview.select(last, &geometry, true);
+        app.apply(Action::PdfCopySelection, &ctx);
+        assert!(
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::CopyText(text) if text == "Find me"))
+        );
+    }
+
+    #[test]
     fn switching_transparency_reopens_the_window_without_losing_the_chat() {
         use fastframe_shell::{Closed, Resident};
         let ctx = egui::Context::default();
@@ -19102,19 +19166,32 @@ mod tests {
         app.open_chat = Some("theme-test@s.whatsapp.net".into());
         app.composer = "An unfinished draft".into();
         let chat = app.open_chat.clone();
-        for system in [egui::Theme::Light, egui::Theme::Dark] {
-            let mut output = ctx.run_ui(
-                egui::RawInput {
-                    system_theme: Some(system),
-                    ..Default::default()
-                },
-                |_| app.apply(Action::SetTheme(ThemeChoice::Aurora), &ctx),
-            );
-            output.textures_delta.clear();
-            assert_eq!(app.palette, Palette::aurora(system == egui::Theme::Dark));
-            assert_eq!(ctx.theme(), system);
-            assert_eq!(app.open_chat, chat);
-            assert_eq!(app.composer, "An unfinished draft");
+        for choice in [
+            ThemeChoice::Aurora,
+            ThemeChoice::AuroraGreen,
+            ThemeChoice::AuroraAlternative,
+        ] {
+            for system in [egui::Theme::Light, egui::Theme::Dark] {
+                let dark = system == egui::Theme::Dark;
+                let expected = match choice {
+                    ThemeChoice::Aurora => Palette::aurora(dark),
+                    ThemeChoice::AuroraGreen => Palette::aurora_green(dark),
+                    ThemeChoice::AuroraAlternative => Palette::aurora_alternative(dark),
+                    _ => unreachable!(),
+                };
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        system_theme: Some(system),
+                        ..Default::default()
+                    },
+                    |_| app.apply(Action::SetTheme(choice), &ctx),
+                );
+                output.textures_delta.clear();
+                assert_eq!(app.palette, expected);
+                assert_eq!(ctx.theme(), system);
+                assert_eq!(app.open_chat, chat);
+                assert_eq!(app.composer, "An unfinished draft");
+            }
         }
         app.apply(Action::SetTheme(ThemeChoice::Dark), &ctx);
         assert_eq!(app.palette, Palette::dark());

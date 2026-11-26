@@ -134,14 +134,20 @@ jobs:
         if: runner.os == 'macOS'
         timeout-minutes: 2
         run: |
-          for appearance in aurora-dark aurora-light; do
+          for appearance in \
+            aurora-dark aurora-light \
+            aurora-green-dark aurora-green-light \
+            aurora-alternative-dark aurora-alternative-light; do
             target/debug/zapfast --demo --demo-page "$appearance" \
               --demo-shot "$RUNNER_TEMP/zapfast-$appearance.png" --demo-shot-delay 2000
             test -s "$RUNNER_TEMP/zapfast-$appearance.png"
           done
-          target/debug/zapfast --demo --demo-page pdf-preview \
-            --demo-shot "$RUNNER_TEMP/zapfast-pdf-preview.png" --demo-shot-delay 2500
-          test -s "$RUNNER_TEMP/zapfast-pdf-preview.png"
+          for page in pdf-preview pdf-preview,pdf-find pdf-preview,pdf-selection; do
+            name=${page//,/-}
+            target/debug/zapfast --demo --demo-page "$page" \
+              --demo-shot "$RUNNER_TEMP/zapfast-$name.png" --demo-shot-delay 2500
+            test -s "$RUNNER_TEMP/zapfast-$name.png"
+          done
       - name: macOS preview
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v7

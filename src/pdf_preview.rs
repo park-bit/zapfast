@@ -6,10 +6,50 @@ use std::path::{Path, PathBuf};
 use egui::{Key, Modifiers, TextureHandle};
 
 use crate::model::ChatId;
-use crate::pdf::{self, Event, Request, Worker};
+use crate::pdf::{self, Event, Request, TextGlyph, Worker};
 
 const CACHED_PAGES: usize = 6;
 const PAGE_GAP: f32 = 16.0;
+
+/// A glyph in document order. The page comes first, so derived `Ord` is
+/// reading order for a document whose glyphs arrived in order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TextCursor {
+    page: usize,
+    glyph: usize,
+}
+
+/// One contiguous, non-overlapping result of the current query.
+#[derive(Clone, Copy, Debug)]
+struct SearchMatch {
+    page: usize,
+    first: usize,
+    last: usize,
+}
+
+/// Where a page was painted, so a pointer can be mapped back to its document.
+#[derive(Clone, Copy, Debug)]
+pub struct PageGeometry {
+    pub page: usize,
+    pub rect: egui::Rect,
+    pub size: egui::Vec2,
+}
+
+impl PageGeometry {
+    pub fn document_point(self, pointer: egui::Pos2) -> Option<egui::Pos2> {
+        if !self.rect.contains(pointer) || !self.size.x.is_finite() || !self.size.y.is_finite() {
+            return None;
+        }
+        let scale = self.rect.size() / self.size;
+        if scale.x <= 0.0 || scale.y <= 0.0 {
+            return None;
+        }
+        Some(egui::pos2(
+            (pointer.x - self.rect.min.x) / scale.x,
+            (pointer.y - self.rect.min.y) / scale.y,
+        ))
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Status {
@@ -32,6 +72,11 @@ pub struct PreviewState {
     rendered: VecDeque<(usize, f32, TextureHandle)>,
     page_errors: HashMap<usize, &'static str>,
     next_request: u64,
+    text: Vec<Vec<TextGlyph>>,
+    query: String,
+    matches: Vec<SearchMatch>,
+    active_match: usize,
+    selection: Option<(TextCursor, TextCursor)>,
 }
 
 impl PreviewState {
@@ -50,7 +95,16 @@ impl PreviewState {
             rendered: VecDeque::new(),
             page_errors: HashMap::new(),
             next_request: 0,
+            text: Vec::new(),
+            query: String::new(),
+            matches: Vec::new(),
+            active_match: 0,
+            selection: None,
         }
+    }
+
+    pub fn search_id() -> egui::Id {
+        egui::Id::new("pdf-search")
     }
 
     pub fn start(&mut self, ctx: &egui::Context) {
@@ -81,6 +135,7 @@ impl PreviewState {
                     self.pages = pages;
                     self.status = Status::Ready;
                 }
+                Event::Text(text) => self.set_text(text),
                 Event::Rendered {
                     request,
                     page,
@@ -255,6 +310,220 @@ impl PreviewState {
             .find(|(cached, _, _)| *cached == page)
             .map(|(_, _, texture)| texture)
     }
+
+    pub fn set_text(&mut self, text: Vec<Vec<TextGlyph>>) {
+        self.text = text;
+        self.selection = None;
+        self.recompute_matches();
+    }
+
+    pub fn query(&self) -> &str {
+        &self.query
+    }
+
+    pub fn set_query(&mut self, query: String) {
+        self.query = query;
+        self.recompute_matches();
+    }
+
+    pub fn match_count(&self) -> usize {
+        self.matches.len()
+    }
+
+    /// One-based for display. Zero means no matches.
+    pub fn active_match(&self) -> usize {
+        if self.matches.is_empty() {
+            0
+        } else {
+            self.active_match + 1
+        }
+    }
+
+    pub fn step_match(&mut self, step: i8) {
+        if self.matches.is_empty() {
+            return;
+        }
+        let count = self.matches.len() as i64;
+        let next = (self.active_match as i64 + i64::from(step)).rem_euclid(count);
+        self.active_match = next as usize;
+        self.jump = Some(self.matches[next as usize].page);
+    }
+
+    pub fn has_selection(&self) -> bool {
+        self.selection.is_some()
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.selection = None;
+    }
+
+    pub fn selection_text(&self) -> Option<String> {
+        let (start, end) = self.normalized_selection()?;
+        let mut text = String::new();
+        for page in start.page..=end.page {
+            let glyphs = self.text.get(page)?;
+            if page > start.page {
+                text.push('\n');
+            }
+            let first = if page == start.page { start.glyph } else { 0 };
+            let last = if page == end.page {
+                end.glyph.min(glyphs.len().saturating_sub(1))
+            } else {
+                glyphs.len().saturating_sub(1)
+            };
+            if first > last {
+                continue;
+            }
+            for glyph in glyphs[first..=last].iter() {
+                text.push_str(&glyph.text);
+            }
+        }
+        Some(text)
+    }
+
+    /// Starts or extends a selection from a screen pointer. Returns whether
+    /// the pointer landed on extractable text, so the UI can claim the drag.
+    pub fn select(&mut self, pointer: egui::Pos2, pages: &[PageGeometry], extend: bool) -> bool {
+        let cursor = pages.iter().find_map(|geometry| {
+            let document = geometry.document_point(pointer)?;
+            let glyphs = self.text.get(geometry.page)?;
+            glyphs
+                .iter()
+                .enumerate()
+                .rev()
+                .find(|(_, glyph)| glyph.rect.contains(document))
+                .map(|(glyph, _)| TextCursor {
+                    page: geometry.page,
+                    glyph,
+                })
+        });
+        let Some(cursor) = cursor else {
+            // A fresh press on empty paper ends the old selection; extending
+            // past the last glyph keeps it.
+            if !extend {
+                self.selection = None;
+            }
+            return false;
+        };
+        if extend && let Some((anchor, _)) = self.selection {
+            self.selection = Some((anchor, cursor));
+        } else {
+            self.selection = Some((cursor, cursor));
+        }
+        true
+    }
+
+    /// Inactive first, active last, so the UI paints the current result over
+    /// the others.
+    pub fn match_rects(&self, page: usize) -> Vec<(egui::Rect, bool)> {
+        let Some(glyphs) = self.text.get(page) else {
+            return Vec::new();
+        };
+        let mut inactive = Vec::new();
+        let mut active = None;
+        for (index, found) in self.matches.iter().enumerate() {
+            if found.page != page {
+                continue;
+            }
+            let rect = union_rects(glyphs, found.first, found.last);
+            if index == self.active_match {
+                active = Some(rect);
+            } else {
+                inactive.push((rect, false));
+            }
+        }
+        if let Some(rect) = active {
+            inactive.push((rect, true));
+        }
+        inactive
+    }
+
+    pub fn selection_rects(&self, page: usize) -> Vec<egui::Rect> {
+        let Some((start, end)) = self.normalized_selection() else {
+            return Vec::new();
+        };
+        if page < start.page || page > end.page {
+            return Vec::new();
+        }
+        let Some(glyphs) = self.text.get(page) else {
+            return Vec::new();
+        };
+        if glyphs.is_empty() {
+            return Vec::new();
+        }
+        let first = if page == start.page {
+            start.glyph.min(glyphs.len() - 1)
+        } else {
+            0
+        };
+        let last = if page == end.page {
+            end.glyph.min(glyphs.len() - 1)
+        } else {
+            glyphs.len() - 1
+        };
+        if first > last {
+            return Vec::new();
+        }
+        glyphs[first..=last]
+            .iter()
+            .map(|glyph| glyph.rect)
+            .collect()
+    }
+
+    fn normalized_selection(&self) -> Option<(TextCursor, TextCursor)> {
+        self.selection.map(|(first, second)| {
+            if first <= second {
+                (first, second)
+            } else {
+                (second, first)
+            }
+        })
+    }
+
+    fn recompute_matches(&mut self) {
+        self.matches.clear();
+        self.active_match = 0;
+        let needle: String = self.query.chars().flat_map(char::to_lowercase).collect();
+        if needle.is_empty() {
+            return;
+        }
+        for (page, glyphs) in self.text.iter().enumerate() {
+            let mut folded = String::new();
+            let mut owners = Vec::new();
+            for (index, glyph) in glyphs.iter().enumerate() {
+                for c in glyph.text.chars().flat_map(char::to_lowercase) {
+                    // `String::find` returns a byte offset, so every UTF-8
+                    // byte needs an owner, not every char.
+                    let mut encoded = [0; 4];
+                    for _ in c.encode_utf8(&mut encoded).as_bytes() {
+                        owners.push(index);
+                    }
+                    folded.push(c);
+                }
+            }
+            let mut from = 0;
+            while let Some(offset) = folded[from..].find(&needle) {
+                let start = from + offset;
+                let end = start + needle.len();
+                let (Some(&first), Some(&last)) = (owners.get(start), owners.get(end - 1)) else {
+                    break;
+                };
+                self.matches.push(SearchMatch { page, first, last });
+                from = end;
+            }
+        }
+    }
+}
+
+fn union_rects(glyphs: &[TextGlyph], first: usize, last: usize) -> egui::Rect {
+    let mut rect = glyphs[first].rect;
+    for glyph in glyphs.iter().take(last + 1).skip(first + 1) {
+        rect.min.x = rect.min.x.min(glyph.rect.min.x);
+        rect.min.y = rect.min.y.min(glyph.rect.min.y);
+        rect.max.x = rect.max.x.max(glyph.rect.max.x);
+        rect.max.y = rect.max.y.max(glyph.rect.max.y);
+    }
+    rect
 }
 
 fn fit_scale(page: (f32, f32), viewport: egui::Vec2) -> f32 {
@@ -266,8 +535,22 @@ fn fit_scale(page: (f32, f32), viewport: egui::Vec2) -> f32 {
 pub fn key_action(key: Key, modifiers: Modifiers) -> Option<crate::model::Action> {
     let command = modifiers.command || modifiers.ctrl;
     match (command, key) {
+        (true, Key::F) if !modifiers.alt && !modifiers.shift => Some(crate::model::Action::PdfFind),
+        (true, Key::C) if !modifiers.alt && !modifiers.shift => {
+            Some(crate::model::Action::PdfCopySelection)
+        }
         (true, Key::Plus) | (true, Key::Equals) => Some(crate::model::Action::ZoomPdfBy(1.25)),
         (true, Key::Minus) => Some(crate::model::Action::ZoomPdfBy(0.8)),
+        (false, Key::Enter) if !modifiers.any() => Some(crate::model::Action::PdfMatch(1)),
+        (false, Key::Enter) if modifiers.shift && !modifiers.alt && !command => {
+            Some(crate::model::Action::PdfMatch(-1))
+        }
+        (false, Key::F3) if !modifiers.alt && !command && !modifiers.shift => {
+            Some(crate::model::Action::PdfMatch(1))
+        }
+        (false, Key::F3) if modifiers.shift && !modifiers.alt && !command => {
+            Some(crate::model::Action::PdfMatch(-1))
+        }
         (false, Key::Plus) | (false, Key::Equals) if !modifiers.any() => {
             Some(crate::model::Action::ZoomPdfBy(1.25))
         }
@@ -304,6 +587,11 @@ mod tests {
             rendered: VecDeque::new(),
             page_errors: HashMap::new(),
             next_request: 0,
+            text: Vec::new(),
+            query: String::new(),
+            matches: Vec::new(),
+            active_match: 0,
+            selection: None,
         };
         state.move_page(-1);
         assert_eq!(state.page(), 0);
@@ -335,5 +623,102 @@ mod tests {
             Some(crate::model::Action::FitPdf)
         );
         assert_eq!(key_action(Key::ArrowRight, Modifiers::SHIFT), None);
+    }
+
+    fn test_state() -> PreviewState {
+        let mut state = PreviewState::new(PathBuf::from("fixture.pdf"), "chat".into());
+        state.started = true;
+        state.status = Status::Ready;
+        state
+    }
+
+    fn glyph(page: usize, order: usize, text: &str, x: f32) -> TextGlyph {
+        TextGlyph {
+            page,
+            order,
+            text: text.into(),
+            origin: (x, 16.0),
+            rect: egui::Rect::from_min_max(egui::pos2(x, 0.0), egui::pos2(x + 10.0, 20.0)),
+        }
+    }
+
+    #[test]
+    fn unicode_search_finds_every_match_in_reading_order() {
+        let mut state = test_state();
+        state.set_text(vec![
+            vec![glyph(0, 0, "Café", 0.0), glyph(0, 1, " notes", 10.0)],
+            vec![glyph(1, 0, "CAFÉ", 0.0)],
+        ]);
+        state.set_query("café".into());
+        assert_eq!(state.match_count(), 2);
+        assert_eq!(state.active_match(), 1);
+        assert_eq!(state.match_rects(0).len(), 1);
+        assert_eq!(state.match_rects(1).len(), 1);
+        state.step_match(1);
+        assert_eq!(state.active_match(), 2);
+        assert_eq!(state.take_jump(), Some(1));
+        state.step_match(1);
+        assert_eq!(state.active_match(), 1);
+        assert_eq!(state.take_jump(), Some(0));
+        state.step_match(-1);
+        assert_eq!(state.active_match(), 2);
+        assert_eq!(state.take_jump(), Some(1));
+        state.set_query(String::new());
+        assert_eq!(state.match_count(), 0);
+        assert!(state.match_rects(0).is_empty());
+    }
+
+    #[test]
+    fn drag_selection_copies_text_and_survives_reverse_drag() {
+        let mut state = test_state();
+        state.set_text(vec![
+            vec![glyph(0, 0, "Find", 0.0), glyph(0, 1, " me", 10.0)],
+            vec![glyph(1, 0, " next", 0.0)],
+        ]);
+        let pages = [PageGeometry {
+            page: 0,
+            rect: egui::Rect::from_min_size(egui::pos2(0.0, 0.0), vec2(200.0, 300.0)),
+            size: vec2(200.0, 300.0),
+        }];
+        assert!(state.select(egui::pos2(5.0, 5.0), &pages, false));
+        assert!(state.select(egui::pos2(15.0, 5.0), &pages, true));
+        assert_eq!(state.selection_text().as_deref(), Some("Find me"));
+        assert_eq!(state.selection_rects(0).len(), 2);
+        assert!(state.has_selection());
+        assert!(state.select(egui::pos2(5.0, 5.0), &pages, true));
+        assert_eq!(state.selection_text().as_deref(), Some("Find me"));
+        assert!(!state.select(egui::pos2(150.0, 150.0), &pages, false));
+        assert!(!state.has_selection());
+        state.clear_selection();
+        assert!(!state.has_selection());
+    }
+
+    #[test]
+    fn pdf_keys_map_find_navigation_and_copy() {
+        let ctrl = Modifiers {
+            ctrl: true,
+            ..Modifiers::NONE
+        };
+        let shift = Modifiers {
+            shift: true,
+            ..Modifiers::NONE
+        };
+        assert_eq!(
+            key_action(Key::F, ctrl),
+            Some(crate::model::Action::PdfFind)
+        );
+        assert_eq!(
+            key_action(Key::C, ctrl),
+            Some(crate::model::Action::PdfCopySelection)
+        );
+        assert_eq!(
+            key_action(Key::F3, Modifiers::NONE),
+            Some(crate::model::Action::PdfMatch(1))
+        );
+        assert_eq!(
+            key_action(Key::F3, shift),
+            Some(crate::model::Action::PdfMatch(-1))
+        );
+        assert_eq!(key_action(Key::F, Modifiers::NONE), None);
     }
 }
