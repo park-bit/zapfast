@@ -302,12 +302,14 @@ fn page(
     }
     ui.scope_builder(UiBuilder::new().max_rect(view), |ui| {
         let output = scroll.show_viewport(ui, |ui, viewport| {
-            let (content, _) = ui.allocate_exact_size(vec2(width, height), Sense::drag());
+            let (content_rect, content) =
+                ui.allocate_exact_size(vec2(width, height), Sense::drag());
             let mut geometry = Vec::new();
             for index in visible_pages(&pages, viewport.top(), viewport.height()) {
                 let page = pages[index];
-                let image =
-                    page.translate(content.min.to_vec2() + vec2((width - page.width()) / 2.0, 0.0));
+                let image = page.translate(
+                    content_rect.min.to_vec2() + vec2((width - page.width()) / 2.0, 0.0),
+                );
                 let size = vec2(page.width(), page.height());
                 geometry.push(PageGeometry {
                     page: index,

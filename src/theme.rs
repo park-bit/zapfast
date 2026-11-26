@@ -151,6 +151,7 @@ impl Palette {
             read: Color32::from_rgb(0x53, 0xbd, 0xeb),
             bubbles: BubbleStyle::WhatsApp,
             ambient: false,
+            aurora_variant: AuroraVariant::Default,
         }
     }
 
@@ -186,6 +187,7 @@ impl Palette {
             read: Color32::from_rgb(0x64, 0xd2, 0xff),
             bubbles: BubbleStyle::Messages,
             ambient: false,
+            aurora_variant: AuroraVariant::Default,
         }
     }
 
@@ -219,6 +221,7 @@ impl Palette {
             read: Color32::from_rgb(0x00, 0x66, 0xcc),
             bubbles: BubbleStyle::Messages,
             ambient: false,
+            aurora_variant: AuroraVariant::Default,
         }
     }
 
@@ -253,6 +256,7 @@ impl Palette {
             read: Color32::from_rgb(0x02, 0x7e, 0xb5),
             bubbles: BubbleStyle::WhatsApp,
             ambient: false,
+            aurora_variant: AuroraVariant::Default,
         }
     }
 

@@ -572,6 +572,7 @@ pub fn key_action(key: Key, modifiers: Modifiers) -> Option<crate::model::Action
 #[cfg(test)]
 mod tests {
     use super::*;
+    use egui::vec2;
 
     #[test]
     fn navigation_and_zoom_stay_in_bounds() {
