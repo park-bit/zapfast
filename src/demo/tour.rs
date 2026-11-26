@@ -1870,6 +1870,25 @@ mod tests {
                 ],
             );
         }
+        for _ in 0..20 {
+            if tour.labels.contains_key("Nord") {
+                break;
+            }
+            frame(
+                &mut app,
+                &mut tour,
+                &ctx,
+                vec![
+                    Event::PointerMoved(menu_pos),
+                    Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: vec2(0.0, -30.0),
+                        modifiers: Modifiers::NONE,
+                        phase: egui::TouchPhase::Move,
+                    },
+                ],
+            );
+        }
         click(&mut app, &mut tour, &ctx, "Nord");
         assert_eq!(app.settings.custom_theme.as_deref(), Some("Nord.json"));
         assert_eq!(
@@ -1877,6 +1896,25 @@ mod tests {
             egui::Color32::from_rgb(0x2e, 0x34, 0x40)
         );
         click(&mut app, &mut tour, &ctx, "Nord");
+        for _ in 0..20 {
+            if tour.labels.contains_key("Follow system") {
+                break;
+            }
+            frame(
+                &mut app,
+                &mut tour,
+                &ctx,
+                vec![
+                    Event::PointerMoved(menu_pos),
+                    Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: vec2(0.0, 30.0),
+                        modifiers: Modifiers::NONE,
+                        phase: egui::TouchPhase::Move,
+                    },
+                ],
+            );
+        }
         click(&mut app, &mut tour, &ctx, "Follow system");
         assert!(app.settings.custom_theme.is_none());
         assert_eq!(app.settings.theme, ThemeChoice::System);
