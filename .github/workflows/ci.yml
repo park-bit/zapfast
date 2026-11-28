@@ -142,7 +142,7 @@ jobs:
               --demo-shot "$RUNNER_TEMP/zapfast-$appearance.png" --demo-shot-delay 2000
             test -s "$RUNNER_TEMP/zapfast-$appearance.png"
           done
-          for page in preview pdf-preview pdf-preview,pdf-find pdf-preview,pdf-selection; do
+          for page in preview staged pdf-preview pdf-preview,pdf-find pdf-preview,pdf-selection; do
             name=${page//,/-}
             target/debug/zapfast --demo --demo-page "$page" \
               --demo-shot "$RUNNER_TEMP/zapfast-$name.png" --demo-shot-delay 2500
