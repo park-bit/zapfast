@@ -77,7 +77,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     # A cold Windows build passed both suites in 59 minutes, then timed out
     # saving mbx's cache. Leave enough time for that cache to reach later runs.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 90 || 60 }}
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 120 || 90 }}
     strategy:
       fail-fast: false
       matrix:
@@ -98,6 +98,25 @@ jobs:
         run: mbx test --locked --all-targets
       - name: Tests (all features)
         run: mbx test --locked --all-targets --all-features
+      # Downloadable development builds, not signed releases or update assets.
+      - name: Native preview build
+        if: github.event_name != 'pull_request'
+        run: mbx build --locked --release
+      - name: Stage native preview
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          mkdir -p preview
+          cp target/release/zapfast${{ runner.os == 'Windows' && '.exe' || '' }} preview/
+          cp packaging/zapfast-portable.txt README.md LICENSE THIRD-PARTY-NOTICES.md preview/
+      - name: Native preview artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: zapfast-preview-${{ runner.os }}
+          path: preview/
+          if-no-files-found: error
+          retention-days: 7
       - name: Build macOS demo
         if: runner.os == 'macOS'
         run: mbx build --locked --features demo
@@ -111,6 +130,24 @@ jobs:
           screencapture -x "$RUNNER_TEMP/zapfast-window.png" || true
           wait "$demo_pid"
           test -s "$RUNNER_TEMP/zapfast-content.png"
+      - name: Aurora Glass previews (synthetic chats only)
+        if: runner.os == 'macOS'
+        timeout-minutes: 2
+        run: |
+          for appearance in \
+            aurora-dark aurora-light \
+            aurora-green-dark aurora-green-light \
+            aurora-alternative-dark aurora-alternative-light; do
+            target/debug/zapfast --demo --demo-page "$appearance" \
+              --demo-shot "$RUNNER_TEMP/zapfast-$appearance.png" --demo-shot-delay 2000
+            test -s "$RUNNER_TEMP/zapfast-$appearance.png"
+          done
+          for page in preview pdf-preview pdf-preview,pdf-find pdf-preview,pdf-selection; do
+            name=${page//,/-}
+            target/debug/zapfast --demo --demo-page "$page" \
+              --demo-shot "$RUNNER_TEMP/zapfast-$name.png" --demo-shot-delay 2500
+            test -s "$RUNNER_TEMP/zapfast-$name.png"
+          done
       - name: macOS preview
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v7
