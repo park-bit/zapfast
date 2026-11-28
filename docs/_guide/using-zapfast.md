@@ -377,7 +377,8 @@ Click a downloaded PDF to read it in ZapFast. Scroll vertically through pages
 with the mouse or trackpad, or jump with the page arrows, Left and Right, or
 Page Up and Page Down. Zoom with the buttons or `+` and `-`, and press `0` to fit.
 Find text with the search button or `Ctrl/Cmd+F`, then use Enter, Shift+Enter, F3,
-or Shift+F3 to step through matches. Drag across text to select it, then press
+or Shift+F3 to step through matches. Press `Esc` to close the search bar, or
+press `Esc` again to close the viewer. Drag across text to select it, then press
 `Ctrl/Cmd+C` or use **Copy** to copy what you selected. Text extraction happens
 on this computer. Scanned pages hold pictures rather than text, so they cannot
 be found or selected unless the file also carries a text layer. **Open in

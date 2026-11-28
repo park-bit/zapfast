@@ -51,12 +51,19 @@ https://github.com/user-attachments/assets/2bf86b54-45fc-4add-8de7-c426c3cdad9b
 | Feature | What you can do |
 |---|---|
 | **Messages** | Send formatted text, replies, edits, reactions, forwards, pictures, files, stickers, GIFs, polls, and voice messages. |
-| **Media in the chat** | Play voice messages, videos, round video messages, GIFs, and animated stickers in place. |
+| **Media & PDFs in the chat** | Play voice messages, videos, round video messages, GIFs, and animated stickers in place, and read downloaded PDFs in a native viewer with continuous scroll, zoom, animated text search, and text selection. |
+| **Attachment review** | Review staged photos and files before sending, crop or mark view-once photos, or create a local ZIP copy when a file compresses smaller while keeping the original intact. |
 | **Your history** | Keep your chats in an encrypted archive on this computer, fetch older messages from your phone as you scroll, and export locally saved chat history as text or a ZIP with downloaded attachments. |
 | **Several numbers** | Link more than one WhatsApp number and switch between them in one window. |
-| **Desktop controls** | Use keyboard shortcuts, select and copy text across messages, and stay linked in the tray with notifications. |
-| **Themes** | Choose light, dark, system appearance, or custom colours. On Omarchy, follow your desktop theme. |
+| **Desktop controls** | Use keyboard shortcuts, select and copy text across messages and PDFs, and stay linked in the tray with notifications. |
+| **Themes** | Choose light, dark, system appearance, Messages, **Aurora Glass** (with Green and Default Alternative variants), or custom JSON colours. On Omarchy, follow your desktop theme. |
 | **Privacy** | Hide locked chats behind a code, or the whole window behind an app lock. Nothing goes to a server of ours. |
+
+### Recent highlights
+
+- **Aurora Glass themes**: Three frosted glass themes (**Aurora Glass**, **Aurora Glass Green**, and **Aurora Glass Default Alternative**) that follow your system light or dark appearance, blend unified ambient lighting across panes with native platform translucency (AppKit on macOS, Mica on Windows 11 22H2+, Hyprland blur on Linux, and opaque fallback elsewhere), and keep message bubbles and header controls crisp and readable.
+- **Native PDF attachment viewer**: Click any downloaded PDF (up to 64 MiB and 2,000 pages) to read it inside ZapFast using local Hayro rendering, with continuous vertical scrolling, zoom/fit controls (`+`, `-`, `0`), page navigation, an animated `Ctrl/Cmd+F` search bar (`Enter`, `Shift+Enter`, `F3`, `Shift+F3`, `Esc`), drag-to-select text copy (`Ctrl/Cmd+C` or **Copy**), and an explicit **Open in another app** fallback.
+- **Local ZIP copies in attachment review**: Choose **Create ZIP copy** on a staged file to compress it locally in cache. ZapFast swaps in the `.zip` only when it is smaller than the original, shows both sizes, and leaves your original file untouched.
 
 ## Install
 
